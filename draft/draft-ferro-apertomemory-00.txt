@@ -86,11 +86,13 @@ Table of Contents
    9.  Privacy Considerations  . . . . . . . . . . . . . . . . . . .   8
    10. IANA Considerations . . . . . . . . . . . . . . . . . . . . .   8
    11. References  . . . . . . . . . . . . . . . . . . . . . . . . .   8
-     11.1.  Normative References . . . . . . . . . . . . . . . . . .   8
-     11.2.  Informative References . . . . . . . . . . . . . . . . .   9
-   Appendix A.  Test Vectors . . . . . . . . . . . . . . . . . . . .   9
-   Acknowledgments . . . . . . . . . . . . . . . . . . . . . . . . .   9
-   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .   9
+     11.1.  Normative References . . . . . . . . . . . . . . . . . .   9
+     11.2.  Informative References . . . . . . . . . . . . . . . . .  10
+   Appendix A.  Test Vectors . . . . . . . . . . . . . . . . . . . .  10
+     A.1.  Vector 001: Sealed Object . . . . . . . . . . . . . . . .  10
+     A.2.  Vector 002: Key Hierarchy . . . . . . . . . . . . . . . .  11
+   Acknowledgments . . . . . . . . . . . . . . . . . . . . . . . . .  12
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  12
 
 1.  Introduction
 
@@ -101,8 +103,6 @@ Table of Contents
    inside each provider's infrastructure.  Switching tools destroys
    accumulated context, creating a form of vendor lock-in that operates
    on personal data rather than on price or features.
-
-
 
 
 
@@ -230,7 +230,7 @@ Internet-Draft                ApertoMemory                     July 2026
 
    1.  The memory-payload map is encoded as deterministic CBOR and
        signed as the payload of a COSE_Sign1 structure [RFC9052] using
-       EdDSA (Ed25519).
+       EdDSA (Ed25519) [RFC8032].
 
    2.  The COSE_Sign1 output is encrypted as the payload of a
        COSE_Encrypt0 structure using an AEAD algorithm under a single-
@@ -242,10 +242,10 @@ Internet-Draft                ApertoMemory                     July 2026
    objects whose signature does not verify.
 
    The mandatory-to-implement AEAD algorithm is AES-256-GCM (COSE
-   algorithm 3).  ChaCha20/Poly1305 (COSE algorithm 24) is OPTIONAL.
-   Each DEK MUST encrypt exactly one object; nonce reuse under a given
-   key is thereby structurally excluded, and the random nonce serves as
-   defence in depth.
+   algorithm 3, [RFC9053]).  ChaCha20/Poly1305 (COSE algorithm 24) is
+   OPTIONAL.  Each DEK MUST encrypt exactly one object; nonce reuse
+   under a given key is thereby structurally excluded, and the random
+   nonce serves as defence in depth.
 
    All algorithms are referenced by COSE algorithm identifiers.  Future
    migration (including to post-quantum algorithms) is a registry
@@ -268,12 +268,12 @@ Internet-Draft                ApertoMemory                     July 2026
    memory 64 MiB, iterations 3, parallelism 4, 16-byte random salt,
    32-byte output (the second recommended parameter choice of RFC 9106).
 
-   HKDF info strings provide domain separation: "apertomemory/v1/sign",
-   "apertomemory/v1/ka", and "apertomemory/v1/kek-wrap" concatenated
-   with the scope_id.  Binding the KEK wrap to the scope_id ensures a
-   wrapped KEK cannot be transplanted between scopes.
-
-
+   Key derivation uses HKDF-SHA256 [RFC5869]; key agreement uses X25519
+   [RFC7748].  HKDF info strings provide domain separation:
+   "apertomemory/v1/sign", "apertomemory/v1/ka", and "apertomemory/v1/
+   kek-wrap" concatenated with the scope_id.  Binding the KEK wrap to
+   the scope_id ensures a wrapped KEK cannot be transplanted between
+   scopes.
 
 
 
@@ -417,12 +417,38 @@ Internet-Draft                ApertoMemory                     July 2026
 
 10.  IANA Considerations
 
-   This document requests registration of the media type "application/
-   amem+cbor" for the export container of Section 5, following the
-   template of [RFC6838].  Registration details will be completed in a
-   future revision of this document.
+   This document requests registration of the following media type in
+   the "Media Types" registry, per [RFC6838]:
+
+   Type name:  application
+   Subtype name:  amem+cbor
+   Required parameters:  N/A
+   Optional parameters:  N/A
+   Encoding considerations:  binary (CBOR)
+   Security considerations:  See Section 8 of this document.  Content is
+      client-side encrypted and signed; the container carries no
+      cleartext user data.
+   Interoperability considerations:  Deterministic CBOR encoding per RFC
+      8949, Section 4.2.
+   Published specification:  This document.
+   Applications that use this media type:  AI memory producers and
+      consumers implementing the ApertoMemory format.
+   Fragment identifier considerations:  N/A
+   Additional information:  File extension: .amem; Macintosh file type
+      code: none.
+   Person and email address to contact:  Andrea Ferro <irn@irn3.com>
+   Intended usage:  COMMON
+   Restrictions on usage:  None
+   Author/Change controller:  IETF
 
 11.  References
+
+
+
+Ferro                    Expires 20 January 2027                [Page 8]
+
+Internet-Draft                ApertoMemory                     July 2026
+
 
 11.1.  Normative References
 
@@ -435,20 +461,23 @@ Internet-Draft                ApertoMemory                     July 2026
               (AES) Key Wrap Algorithm", RFC 3394, DOI 10.17487/RFC3394,
               September 2002, <https://www.rfc-editor.org/info/rfc3394>.
 
+   [RFC5869]  Krawczyk, H. and P. Eronen, "HMAC-based Extract-and-Expand
+              Key Derivation Function (HKDF)", RFC 5869,
+              DOI 10.17487/RFC5869, May 2010,
+              <https://www.rfc-editor.org/info/rfc5869>.
+
+   [RFC7748]  Langley, A., Hamburg, M., and S. Turner, "Elliptic Curves
+              for Security", RFC 7748, DOI 10.17487/RFC7748, January
+              2016, <https://www.rfc-editor.org/info/rfc7748>.
+
+   [RFC8032]  Josefsson, S. and I. Liusvaara, "Edwards-Curve Digital
+              Signature Algorithm (EdDSA)", RFC 8032,
+              DOI 10.17487/RFC8032, January 2017,
+              <https://www.rfc-editor.org/info/rfc8032>.
+
    [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
               2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
               May 2017, <https://www.rfc-editor.org/info/rfc8174>.
-
-
-
-
-
-
-
-Ferro                    Expires 20 January 2027                [Page 8]
-
-Internet-Draft                ApertoMemory                     July 2026
-
 
    [RFC8610]  Birkholz, H., Vigano, C., and C. Bormann, "Concise Data
               Definition Language (CDDL)", RFC 8610,
@@ -465,6 +494,18 @@ Internet-Draft                ApertoMemory                     July 2026
               DOI 10.17487/RFC9052, August 2022,
               <https://www.rfc-editor.org/info/rfc9052>.
 
+   [RFC9053]  Schaad, J., "CBOR Object Signing and Encryption (COSE):
+              Initial Algorithms", RFC 9053, DOI 10.17487/RFC9053,
+              August 2022, <https://www.rfc-editor.org/info/rfc9053>.
+
+
+
+
+Ferro                    Expires 20 January 2027                [Page 9]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
    [RFC9106]  Biryukov, A., Dinu, D., Khovratovich, D., and S.
               Josefsson, "Argon2 Memory-Hard Function for Password
               Hashing and Proof-of-Work Applications", RFC 9106,
@@ -480,10 +521,135 @@ Internet-Draft                ApertoMemory                     July 2026
 
 Appendix A.  Test Vectors
 
-   Machine-readable test vectors covering key derivation, the sealed-
-   object construction, and the key hierarchy accompany the reference
-   implementation.  They will be inlined in a future revision of this
-   document.
+   All values are lowercase hexadecimal unless noted.  The vectors are
+   machine-readable in the reference repository; the essential values
+   are inlined here.  Vector 001 exercises the sealed-object
+   construction; Vector 002 exercises the key hierarchy and, combined
+   with Vector 001, the full chain from passphrase to verified object.
+
+A.1.  Vector 001: Sealed Object
+
+   passphrase (UTF-8): "correct horse battery staple"
+   salt:
+     00112233445566778899aabbccddeeff
+   Argon2id parameters: m = 64 MiB, t = 3, p = 4, output 32 bytes
+   master_secret:
+     aeb08a81bdb9da07c32f8f9d2c87cfba3313c0fdc7468179e494c56680f0
+     ae8d
+   HKDF-SHA256 info "apertomemory/v1/sign" -> Ed25519 seed:
+     fa0a094dc302a1923536255e675ec8aea52f2385ce0aafd4039dd3e735f4
+     e7bb
+   Ed25519 public key:
+     927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf4
+     2b19
+   author_key_id (SHA-256 of public key, first 8 bytes):
+     63c1e89c009c5ad7
+   memory-payload (deterministic CBOR):
+     a701020278444c277574656e7465207072656665726973636520656d6169
+     6c2042324220666f726d616c692c2073656e7a6120656d6f6a692c20636f
+     6e2062756c6c657420706f696e7403fb3feccccccccccccd04a20173616d
+     656d2d74657374766563746f722f302e31024863c1e89c009c5ad7050106
+     826b707265666572656e6365736d636f6d6d756e69636174696f6e07a101
+     1a687b5e90
+   COSE_Sign1 (EdDSA):
+     d2844da201270448617574686f723031a0589ba701020278444c27757465
+     6e7465207072656665726973636520656d61696c2042324220666f726d61
+
+
+
+Ferro                    Expires 20 January 2027               [Page 10]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+     6c692c2073656e7a6120656d6f6a692c20636f6e2062756c6c657420706f
+     696e7403fb3feccccccccccccd04a20173616d656d2d7465737476656374
+     6f722f302e31024863c1e89c009c5ad7050106826b707265666572656e63
+     65736d636f6d6d756e69636174696f6e07a1011a687b5e9058400648671d
+     d6c09bb0a10b3ac98e6f084cef6de4e2551b2ab2e96919541e4daeb187ae
+     01aac3cdfb8ed9b47b04e18c7fbc038f8ef27aae439c614d81b2535d9a05
+   DEK:
+     f0e1d2c3b4a5968778695a4b3c2d1e0ff0e1d2c3b4a5968778695a4b3c2d
+     1e0f
+   AEAD nonce:
+     000102030405060708090a0b
+   COSE_Encrypt0 (AES-256-GCM, COSE alg 3):
+     d08343a10103a1054c000102030405060708090a0b590100404e5e9a55ff
+     5faeabfb129e58ff3dcfb1978aae9f04171e6e8081d01e98a004799376c2
+     fc0cdb57b37364bc364a79c625bf6767854b82a3d96d74e65cb3b7213bfa
+     d56226bf77abb47b2f6b241b3942887e52313e0b63c4b1a2376ce447dff6
+     8faf667f79c73b8bcc8d6fed3f3b5ee26e9b91e4c62495e496728884f20f
+     65275be2ee11ab18c18b9031e32f9d9ab130c81637777ffaad6ddcaa88a6
+     e97943a7f9ec5f7f71389f603cfa847b192d9d3fd886c40d4a8ac8915eaf
+     91edb1a1aa253d25b325e7ff5f97b8cabd45c4a9aa14fd58fb95fd210a43
+     32e303f9420d8f113feb639b1d91f45cb6e7a397603ea06c2a6dfda77c4b
+     3ea39a54a15939c29cfd
+   sealed-object (deterministic CBOR, 323 bytes):
+     a40150a1a2a3a4a5a6a7a8b1b2b3b4b5b6b7b80250c1c2c3c4c5c6c7c8d1
+     d2d3d4d5d6d7d8030104590118d08343a10103a1054c0001020304050607
+     08090a0b590100404e5e9a55ff5faeabfb129e58ff3dcfb1978aae9f0417
+     1e6e8081d01e98a004799376c2fc0cdb57b37364bc364a79c625bf676785
+     4b82a3d96d74e65cb3b7213bfad56226bf77abb47b2f6b241b3942887e52
+     313e0b63c4b1a2376ce447dff68faf667f79c73b8bcc8d6fed3f3b5ee26e
+     9b91e4c62495e496728884f20f65275be2ee11ab18c18b9031e32f9d9ab1
+     30c81637777ffaad6ddcaa88a6e97943a7f9ec5f7f71389f603cfa847b19
+     2d9d3fd886c40d4a8ac8915eaf91edb1a1aa253d25b325e7ff5f97b8cabd
+     45c4a9aa14fd58fb95fd210a4332e303f9420d8f113feb639b1d91f45cb6
+     e7a397603ea06c2a6dfda77c4b3ea39a54a15939c29cfd
+
+A.2.  Vector 002: Key Hierarchy
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Ferro                    Expires 20 January 2027               [Page 11]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   Same passphrase, salt, and Argon2id parameters as Vector 001.
+   HKDF-SHA256 info "apertomemory/v1/ka" -> X25519 seed:
+     912abb74c0d4724ccf5e47c2a7413a965c51b39830892d4697186237c4b3
+     74d3
+   User X25519 public key:
+     12218cbdbaefba349f7ea6926fb4a9226fc77762ff79a808f3d8ce0a53e6
+     8c64
+   Ephemeral X25519 seed (fixed for the vector):
+     0fcd44b9c3fc5f841a72390520466c6700ca41c38fae650dc7cc1b890341
+     c456
+   Ephemeral X25519 public key:
+     6c870f25265c137853a45e91565733dc0821a8ba15db46a9dee7720bdd9d
+     876d
+   scope_id:
+     c1c2c3c4c5c6c7c8d1d2d3d4d5d6d7d8
+   Wrap key = HKDF-SHA256(ECDH(eph, user),
+     info = "apertomemory/v1/kek-wrap" || scope_id)
+   KEK:
+     0a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627
+     2829
+   KEK wrapped (AES-256-KW, RFC 3394):
+     3e2882d1eb606d1d6132591832fceeedbb4e13f73fe8b84b6d02b4725ad8
+     37d3f750e429720375e1
+   DEK (as in Vector 001):
+     f0e1d2c3b4a5968778695a4b3c2d1e0ff0e1d2c3b4a5968778695a4b3c2d
+     1e0f
+   DEK wrapped under KEK (AES-256-KW):
+     3b8ab3b1ca3351f5177115b33ff2455113548e7c7221b9ce245302e9bc6a
+     83194f0d7b235203cc03
+   Unwrapping the KEK with the user private key, then the DEK, and
+   decrypting the Vector 001 sealed-object MUST yield the Vector 001
+   memory-payload with a valid signature.
 
 Acknowledgments
 
@@ -501,4 +667,6 @@ Author's Address
 
 
 
-Ferro                    Expires 20 January 2027                [Page 9]
+
+
+Ferro                    Expires 20 January 2027               [Page 12]
