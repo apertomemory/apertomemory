@@ -1,0 +1,28 @@
+{
+  "description": "ApertoMemory v0.1 test vector 002 \u2014 key hierarchy (spec \u00a76)",
+  "hkdf_infos": {
+    "sign": "apertomemory/v1/sign",
+    "ka": "apertomemory/v1/ka",
+    "kek_wrap": "apertomemory/v1/kek-wrap || scope_id"
+  },
+  "x25519": {
+    "user_seed_hex": "912abb74c0d4724ccf5e47c2a7413a965c51b39830892d4697186237c4b374d3",
+    "user_pub_hex": "12218cbdbaefba349f7ea6926fb4a9226fc77762ff79a808f3d8ce0a53e68c64",
+    "ephemeral_seed_hex": "0fcd44b9c3fc5f841a72390520466c6700ca41c38fae650dc7cc1b890341c456",
+    "ephemeral_pub_hex": "6c870f25265c137853a45e91565733dc0821a8ba15db46a9dee7720bdd9d876d"
+  },
+  "scope_id_hex": "c1c2c3c4c5c6c7c8d1d2d3d4d5d6d7d8",
+  "kek_hex": "0a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223242526272829",
+  "kek_wrapped_hex": "3e2882d1eb606d1d6132591832fceeedbb4e13f73fe8b84b6d02b4725ad837d3f750e429720375e1",
+  "dek_hex": "f0e1d2c3b4a5968778695a4b3c2d1e0ff0e1d2c3b4a5968778695a4b3c2d1e0f",
+  "dek_wrapped_hex": "3b8ab3b1ca3351f5177115b33ff2455113548e7c7221b9ce245302e9bc6a83194f0d7b235203cc03",
+  "wrap_algorithms": {
+    "kek_under_master": "ECDH-ES(X25519) + HKDF-SHA256 + AES-256-KW (RFC 3394)",
+    "dek_under_kek": "AES-256-KW (RFC 3394)"
+  },
+  "sizes_bytes": {
+    "kek_wrapped": 40,
+    "dek_wrapped": 40,
+    "ephemeral_pub": 32
+  }
+}

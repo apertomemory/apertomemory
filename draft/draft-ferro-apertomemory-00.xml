@@ -1,0 +1,358 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-model href="rfc7991bis.rnc"?>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude"
+     category="exp" docName="draft-ferro-apertomemory-00"
+     ipr="trust200902" obsoletes="" updates="" submissionType="IETF"
+     xml:lang="en" version="3" tocInclude="true" sortRefs="true" symRefs="true">
+
+  <front>
+    <title abbrev="ApertoMemory">The ApertoMemory Format: Portable,
+    Client-Side-Encrypted AI Memory</title>
+    <seriesInfo name="Internet-Draft" value="draft-ferro-apertomemory-00"/>
+    <author fullname="Andrea Ferro" initials="A." surname="Ferro">
+      <organization>DevelopingWeb</organization>
+      <address>
+        <postal><country>IT</country></postal>
+        <email>draft@apertomemory.example</email>
+      </address>
+    </author>
+    <date year="2026" month="July" day="19"/>
+    <area>sec</area>
+    <keyword>AI memory</keyword>
+    <keyword>portability</keyword>
+    <keyword>encryption</keyword>
+    <keyword>COSE</keyword>
+
+    <abstract>
+      <t>AI assistants and agents accumulate long-term memory about their
+      users. This memory is typically stored in proprietary, provider-held
+      silos: it cannot be moved between tools, its integrity cannot be
+      verified, and its confidentiality depends entirely on the provider.
+      This document specifies the ApertoMemory format: a canonical,
+      signed, client-side-encrypted representation of AI memory objects,
+      together with a portable single-file export container. Memory
+      objects are encoded in deterministic CBOR, signed with COSE_Sign1,
+      and encrypted with COSE_Encrypt0 under keys derived from and
+      controlled by the user. A storage or synchronisation server handling
+      ApertoMemory objects has zero access to their content, authorship,
+      or semantic timestamps.</t>
+    </abstract>
+  </front>
+
+  <middle>
+    <section anchor="intro">
+      <name>Introduction</name>
+      <t>Modern AI tools build user-specific memory: preferences, facts,
+      learned behaviours, and procedural knowledge that improve the
+      quality of assistance over time. This memory constitutes some of the
+      most sensitive personal data in existence, and it is currently
+      locked inside each provider's infrastructure. Switching tools
+      destroys accumulated context, creating a form of vendor lock-in that
+      operates on personal data rather than on price or features.</t>
+      <t>Existing portability efforts move memory as cleartext JSON with
+      no integrity protection, no verifiable provenance, and no
+      confidentiality guarantees against the storage layer. This document
+      takes the opposite starting point: memory is encrypted and signed on
+      the user's device before it goes anywhere, and every party except
+      the user's own runtime is treated as untrusted.</t>
+      <t>This document specifies (1) the memory object data model and its
+      deterministic CBOR encoding, (2) the cryptographic envelope
+      (sign-then-encrypt with COSE), (3) the user-controlled key
+      hierarchy including per-scope access separation, and (4) the
+      portable export container. Synchronisation protocols and memory
+      extraction from conversations are out of scope.</t>
+      <section anchor="terms">
+        <name>Terminology</name>
+        <t>The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL
+        NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED",
+        "MAY", and "OPTIONAL" in this document are to be interpreted as
+        described in BCP 14 <xref target="RFC2119"/> <xref
+        target="RFC8174"/> when, and only when, they appear in all
+        capitals, as shown here.</t>
+        <dl>
+          <dt>Memory Object</dt><dd>A single unit of AI memory (a fact,
+          preference, event, or procedure) with metadata.</dd>
+          <dt>Producer</dt><dd>Software that creates and seals Memory
+          Objects on behalf of the user.</dd>
+          <dt>Consumer</dt><dd>Software that opens Memory Objects and uses
+          them to inform AI behaviour.</dd>
+          <dt>Scope</dt><dd>A named partition of memory with its own
+          encryption key, enabling per-tool access control.</dd>
+          <dt>Blind Server</dt><dd>A storage or synchronisation server
+          that handles sealed objects without the ability to decrypt
+          them.</dd>
+          <dt>DEK / KEK</dt><dd>Data Encryption Key (per object) / Key
+          Encryption Key (per scope).</dd>
+        </dl>
+      </section>
+    </section>
+
+    <section anchor="model">
+      <name>Data Model</name>
+      <t>A sealed Memory Object is a CBOR map containing exactly the
+      fields a Blind Server is permitted to see, plus an encrypted
+      envelope. All semantic content, including authorship and semantic
+      timestamps, lives inside the envelope.</t>
+      <t>The normative schema is expressed in CDDL <xref
+      target="RFC8610"/>:</t>
+      <sourcecode type="cddl"><![CDATA[
+sealed-object = {
+  1 => bstr .size 16,   ; id: 128-bit random
+  2 => bstr .size 16,   ; scope_id: opaque random identifier
+  3 => uint,            ; format_version (this document: 1)
+  4 => bstr,            ; COSE_Encrypt0 whose plaintext is a
+                        ;   COSE_Sign1 over memory-payload
+  ? 5 => bstr .size 16, ; dek_wrap_ref (optional)
+}
+
+memory-payload = {
+  1 => mem-type,
+  2 => tstr,            ; content (UTF-8 text)
+  3 => confidence,      ; 0.0 .. 1.0
+  4 => provenance,
+  5 => trust-level,
+  ? 6 => [* tstr],      ; tags
+  7 => timestamps,      ; semantic times: MUST NOT appear
+                        ;   outside the envelope
+  ? 8 => embedding,     ; MUST NOT appear outside the envelope
+  ? 9 => time,          ; expires_at
+  ? 10 => {* tstr => any}, ; extensions
+}
+
+mem-type = &( episodic: 1, semantic: 2, procedural: 3 )
+confidence = float .ge 0.0 .le 1.0
+provenance = {
+  1 => tstr,            ; producing tool identifier
+  2 => bstr .size 8,    ; author_key_id: first 8 bytes of
+                        ;   SHA-256 of author's Ed25519 key
+  ? 3 => tstr,          ; session identifier
+}
+trust-level = &( self: 1, trusted: 2,
+                 third-party: 3, unverified: 4 )
+timestamps = { 1 => time, ? 2 => time }  ; created, updated
+embedding = { 1 => tstr, 2 => [* float] } ; model, vector
+]]></sourcecode>
+      <t>Object identifiers MUST be generated from a cryptographically
+      secure random source. Time-ordered identifiers (such as UUIDv7)
+      MUST NOT be used, as they leak creation-time metadata to the Blind
+      Server.</t>
+      <t>Implementations MUST preserve unknown fields in the extensions
+      map when re-encoding an object (see <xref target="versioning"/>).</t>
+    </section>
+
+    <section anchor="crypto">
+      <name>Encoding and Cryptographic Envelope</name>
+      <t>All structures are serialised as deterministically encoded CBOR
+      as defined in Section 4.2 of <xref target="RFC8949"/>.</t>
+      <t>The envelope construction is sign-then-encrypt:</t>
+      <ol>
+        <li>The memory-payload map is encoded as deterministic CBOR and
+        signed as the payload of a COSE_Sign1 structure <xref
+        target="RFC9052"/> using EdDSA (Ed25519).</li>
+        <li>The COSE_Sign1 output is encrypted as the payload of a
+        COSE_Encrypt0 structure using an AEAD algorithm under a
+        single-use, per-object DEK with a 96-bit random nonce.</li>
+      </ol>
+      <t>Placing the signature inside the encryption prevents the Blind
+      Server from learning or correlating authorship. Signature
+      verification is performed by Consumers after decryption, and
+      Consumers MUST reject objects whose signature does not verify.</t>
+      <t>The mandatory-to-implement AEAD algorithm is AES-256-GCM (COSE
+      algorithm 3). ChaCha20/Poly1305 (COSE algorithm 24) is OPTIONAL.
+      Each DEK MUST encrypt exactly one object; nonce reuse under a given
+      key is thereby structurally excluded, and the random nonce serves
+      as defence in depth.</t>
+      <t>All algorithms are referenced by COSE algorithm identifiers.
+      Future migration (including to post-quantum algorithms) is a
+      registry change, not a format change.</t>
+    </section>
+
+    <section anchor="keys">
+      <name>Key Hierarchy</name>
+      <t>All keys derive from, or are wrapped towards, material under
+      exclusive user control:</t>
+      <sourcecode type=""><![CDATA[
+passphrase --Argon2id--> master secret (32 bytes)
+master secret --HKDF-SHA256--> Ed25519 seed (signing)
+master secret --HKDF-SHA256--> X25519 seed (key agreement)
+scope KEK (32 bytes random)
+    <-- ECDH-ES(X25519) + HKDF-SHA256 + AES-256-KW -- master
+object DEK (32 bytes random, single object)
+    <-- AES-256-KW -- scope KEK
+]]></sourcecode>
+      <t>The Argon2id <xref target="RFC9106"/> parameters are fixed for
+      format version 1: memory 64 MiB, iterations 3, parallelism 4,
+      16-byte random salt, 32-byte output (the second recommended
+      parameter choice of RFC 9106).</t>
+      <t>HKDF info strings provide domain separation:
+      "apertomemory/v1/sign", "apertomemory/v1/ka", and
+      "apertomemory/v1/kek-wrap" concatenated with the scope_id. Binding
+      the KEK wrap to the scope_id ensures a wrapped KEK cannot be
+      transplanted between scopes.</t>
+      <t>Key wrapping uses AES Key Wrap <xref target="RFC3394"/>.
+      Server-side key escrow is out of scope of this format: a lost
+      passphrase without a recovery mechanism means unrecoverable
+      memory, and implementations SHOULD offer user-held recovery codes.</t>
+      <section anchor="scopes">
+        <name>Scopes and Per-Tool Access</name>
+        <t>Each Scope has its own KEK. A tool authorised for a subset of
+        scopes receives only those KEKs and is cryptographically unable
+        to open objects outside them. The scope_id visible to the Blind
+        Server is an opaque random identifier carrying no semantic
+        information about the scope's name or purpose.</t>
+      </section>
+    </section>
+
+    <section anchor="export">
+      <name>Portable Export Container</name>
+      <t>The export container serialises a complete memory set into a
+      single file (conventionally with the .amem extension):</t>
+      <sourcecode type="cddl"><![CDATA[
+amem-export = {
+  1 => uint,              ; export_version (this document: 1)
+  2 => vault-public,      ; salt, public keys, wrapped scope KEKs
+  3 => [* bstr],          ; sealed-objects (encoded)
+  4 => {* bstr => bstr},  ; object id => wrapped DEK
+}
+vault-public = {
+  "salt" => bstr .size 16,
+  "sign_pub" => bstr .size 32,
+  "ka_pub" => bstr .size 32,
+  "scopes" => {* tstr => scope-entry },
+}
+scope-entry = {
+  "scope_id" => bstr .size 16,
+  "kek_wrapped" => bstr,
+  "eph_pub" => bstr .size 32,
+}
+]]></sourcecode>
+      <t>The container holds only public keys, wrapped keys, and sealed
+      objects; it is therefore safe to transport over untrusted channels.
+      Possession of the file plus the user's passphrase is sufficient to
+      reconstruct the entire memory on a new device.</t>
+    </section>
+
+    <section anchor="import">
+      <name>Import Semantics</name>
+      <t>Interoperability requires more than parseability. A Consumer
+      claiming full conformance MUST take the type, confidence, creation
+      time, and scope of memory objects into account when selecting which
+      objects to surface to an AI system, and SHOULD prefer higher
+      confidence and more recent objects when context is limited.</t>
+      <t>Consumers MUST treat objects whose trust-level is not "self" as
+      untrusted data: such content MUST be clearly delimited when placed
+      in an AI context window and MUST NOT be given instruction-level
+      privilege. See <xref target="poisoning"/>.</t>
+    </section>
+
+    <section anchor="versioning">
+      <name>Versioning and Extensibility</name>
+      <t>The format_version field governs breaking changes. Additive
+      changes reuse the extensions map; implementations MUST preserve
+      unknown extension fields when re-encoding, so that older tools do
+      not destroy data written by newer tools.</t>
+    </section>
+
+    <section anchor="security">
+      <name>Security Considerations</name>
+      <section anchor="threat">
+        <name>Threat Model</name>
+        <t>This format protects memory at rest and in transit against:
+        a compromised or curious storage/synchronisation server; the
+        storage provider itself; and network observers. It intentionally
+        does not protect against the AI runtime to which the user grants
+        memory access (which must read cleartext to function), nor
+        against malware on the user's own device. Specifications and
+        products building on this format MUST NOT claim protections
+        beyond this model.</t>
+      </section>
+      <section anchor="poisoning">
+        <name>Memory Poisoning and Persistent Prompt Injection</name>
+        <t>A memory object is text that will eventually be placed into an
+        AI system's context. An attacker who can introduce objects into a
+        user's memory achieves persistent prompt injection: instructions
+        that resurface in every future conversation. This is
+        substantially more dangerous than single-conversation injection.</t>
+        <t>The format's mandatory signed provenance and trust-level field
+        exist to mitigate this class of attack. Consumers MUST verify
+        signatures before use, MUST NOT elevate non-"self" objects to
+        instruction privilege, and SHOULD surface provenance to users
+        when importing third-party memory sets.</t>
+      </section>
+      <section anchor="metadata">
+        <name>Metadata Leakage</name>
+        <t>A Blind Server still observes object counts, sizes, and
+        synchronisation timing, from which usage patterns can be
+        inferred. Semantic timestamps and embeddings MUST only exist
+        inside the encrypted envelope. Implementations SHOULD pad sealed
+        objects to size classes. Residual inference from traffic
+        analysis is acknowledged and not fully mitigated by this
+        format.</t>
+      </section>
+      <section anchor="embeddings">
+        <name>Embeddings</name>
+        <t>Embedding vectors permit approximate reconstruction of the
+        text they were computed from. They are therefore content, not
+        metadata, and MUST be encrypted like content. Server-side
+        semantic indexing of embeddings is incompatible with this
+        format's security goals; search is a client-side operation over
+        decrypted objects.</t>
+      </section>
+    </section>
+
+    <section anchor="privacy">
+      <name>Privacy Considerations</name>
+      <t>Erasure of an individual object is achieved by destroying its
+      wrapped DEK (cryptographic erasure); the sealed blob becomes
+      permanently unreadable even if retained by append-only storage.
+      This provides a technical mechanism for erasure obligations such
+      as those in data protection regulation.</t>
+      <t>The export container is itself a data portability mechanism:
+      it gives users a complete, machine-readable, provider-independent
+      copy of their AI memory, aligned with portability rights such as
+      Article 20 of the GDPR.</t>
+    </section>
+
+    <section anchor="iana">
+      <name>IANA Considerations</name>
+      <t>This document requests registration of the media type
+      "application/amem+cbor" for the export container of <xref
+      target="export"/>, following the template of <xref
+      target="RFC6838"/>. Registration details will be completed in a
+      future revision of this document.</t>
+    </section>
+  </middle>
+
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <reference anchor="RFC2119" target="https://www.rfc-editor.org/info/rfc2119"><front><title>Key words for use in RFCs to Indicate Requirement Levels</title><author fullname="S. Bradner"/><date month="March" year="1997"/></front><seriesInfo name="BCP" value="14"/><seriesInfo name="RFC" value="2119"/><seriesInfo name="DOI" value="10.17487/RFC2119"/></reference>
+        <reference anchor="RFC8174" target="https://www.rfc-editor.org/info/rfc8174"><front><title>Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words</title><author fullname="B. Leiba"/><date month="May" year="2017"/></front><seriesInfo name="BCP" value="14"/><seriesInfo name="RFC" value="8174"/><seriesInfo name="DOI" value="10.17487/RFC8174"/></reference>
+        <reference anchor="RFC8610" target="https://www.rfc-editor.org/info/rfc8610"><front><title>Concise Data Definition Language (CDDL)</title><author fullname="H. Birkholz"/><author fullname="C. Vigano"/><author fullname="C. Bormann"/><date month="June" year="2019"/></front><seriesInfo name="RFC" value="8610"/><seriesInfo name="DOI" value="10.17487/RFC8610"/></reference>
+        <reference anchor="RFC8949" target="https://www.rfc-editor.org/info/rfc8949"><front><title>Concise Binary Object Representation (CBOR)</title><author fullname="C. Bormann"/><author fullname="P. Hoffman"/><date month="December" year="2020"/></front><seriesInfo name="STD" value="94"/><seriesInfo name="RFC" value="8949"/><seriesInfo name="DOI" value="10.17487/RFC8949"/></reference>
+        <reference anchor="RFC9052" target="https://www.rfc-editor.org/info/rfc9052"><front><title>CBOR Object Signing and Encryption (COSE): Structures and Process</title><author fullname="J. Schaad"/><date month="August" year="2022"/></front><seriesInfo name="STD" value="96"/><seriesInfo name="RFC" value="9052"/><seriesInfo name="DOI" value="10.17487/RFC9052"/></reference>
+        <reference anchor="RFC9106" target="https://www.rfc-editor.org/info/rfc9106"><front><title>Argon2 Memory-Hard Function for Password Hashing and Proof-of-Work Applications</title><author fullname="A. Biryukov"/><author fullname="D. Dinu"/><author fullname="D. Khovratovich"/><author fullname="S. Josefsson"/><date month="September" year="2021"/></front><seriesInfo name="RFC" value="9106"/><seriesInfo name="DOI" value="10.17487/RFC9106"/></reference>
+        <reference anchor="RFC3394" target="https://www.rfc-editor.org/info/rfc3394"><front><title>Advanced Encryption Standard (AES) Key Wrap Algorithm</title><author fullname="J. Schaad"/><author fullname="R. Housley"/><date month="September" year="2002"/></front><seriesInfo name="RFC" value="3394"/><seriesInfo name="DOI" value="10.17487/RFC3394"/></reference>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <reference anchor="RFC6838" target="https://www.rfc-editor.org/info/rfc6838"><front><title>Media Type Specifications and Registration Procedures</title><author fullname="N. Freed"/><author fullname="J. Klensin"/><author fullname="T. Hansen"/><date month="January" year="2013"/></front><seriesInfo name="BCP" value="13"/><seriesInfo name="RFC" value="6838"/><seriesInfo name="DOI" value="10.17487/RFC6838"/></reference>
+      </references>
+    </references>
+    <section anchor="testvectors">
+      <name>Test Vectors</name>
+      <t>Machine-readable test vectors covering key derivation, the
+      sealed-object construction, and the key hierarchy accompany the
+      reference implementation. They will be inlined in a future
+      revision of this document.</t>
+    </section>
+    <section anchor="ack" numbered="false">
+      <name>Acknowledgments</name>
+      <t>The memory-type taxonomy (episodic, semantic, procedural)
+      follows established cognitive-science terminology also adopted by
+      other AI memory efforts.</t>
+    </section>
+  </back>
+</rfc>

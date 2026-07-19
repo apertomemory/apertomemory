@@ -1,0 +1,66 @@
+; =====================================================================
+; ApertoMemory v0.1 — CDDL Schema (RFC 8610)
+; Serialisation: deterministic CBOR (RFC 8949 s4.2)
+; Normative reference: draft-ferro-apertomemory (see /draft)
+; =====================================================================
+
+; What a Blind Server is allowed to see:
+sealed-object = {
+  1 => bstr .size 16,   ; id: 128-bit random (NOT UUIDv7: time-ordered
+                        ;   ids leak creation-time metadata)
+  2 => bstr .size 16,   ; scope_id: opaque random identifier
+  3 => uint,            ; format_version (v1 = 1)
+  4 => bstr,            ; COSE_Encrypt0 (AES-256-GCM, COSE alg 3, MTI;
+                        ;   alg 24 OPTIONAL) whose plaintext is a
+                        ;   COSE_Sign1 (EdDSA) over memory-payload
+  ? 5 => bstr .size 16, ; dek_wrap_ref (optional)
+}
+; Sign-then-encrypt: the signature lives INSIDE the ciphertext.
+; The server can neither learn nor verify authorship; verification
+; happens client-side after decryption.
+
+memory-payload = {
+  1 => mem-type,
+  2 => tstr,            ; content: UTF-8 text (v1: text only)
+  3 => confidence,      ; 0.0 .. 1.0
+  4 => provenance,
+  5 => trust-level,
+  ? 6 => [* tstr],      ; tags
+  7 => timestamps,      ; SEMANTIC times — MUST NOT appear in cleartext
+  ? 8 => embedding,     ; MUST travel encrypted only (spec s9.4)
+  ? 9 => time,          ; expires_at
+  ? 10 => {* tstr => any}, ; extensions; unknown fields MUST be
+                        ;   preserved on rewrite
+}
+
+mem-type = &( episodic: 1, semantic: 2, procedural: 3 )
+confidence = float .ge 0.0 .le 1.0
+provenance = {
+  1 => tstr,            ; producing tool (e.g. "amem-cli/0.1")
+  2 => bstr .size 8,    ; author_key_id: first 8 bytes of SHA-256 of
+                        ;   the author's Ed25519 public key
+  ? 3 => tstr,          ; session identifier
+}
+trust-level = &( self: 1, trusted: 2, third-party: 3, unverified: 4 )
+; Consumers MUST treat trust != self as untrusted data (spec s9.2)
+timestamps = { 1 => time, ? 2 => time }   ; created, updated
+embedding = { 1 => tstr, 2 => [* float] } ; model, vector
+
+tombstone = {
+  1 => bstr .size 16,   ; id of the deleted object
+  2 => bstr,            ; COSE_Sign1 over the deletion act
+  3 => time,            ; deleted_at (cleartext: the server needs GC)
+}
+; Actual deletion is DEK destruction (crypto-shredding); the tombstone
+; is the sync signal, not the deletion mechanism.
+
+; ---------------------------------------------------------------------
+; Key hierarchy (spec s6) — proven by test vectors 001/002:
+; passphrase --Argon2id(m=64MiB,t=3,p=4,salt16,out32)--> master secret
+; master --HKDF-SHA256--> Ed25519 seed ("apertomemory/v1/sign")
+; master --HKDF-SHA256--> X25519 seed  ("apertomemory/v1/ka")
+; scope KEK <-- ECDH-ES(X25519)+HKDF("apertomemory/v1/kek-wrap"||scope_id)
+;               +AES-256-KW (RFC 3394) -- master
+; object DEK (single object) <-- AES-256-KW -- scope KEK
+; AEAD nonce: 96-bit random per envelope; each DEK encrypts exactly one
+; object, so nonce reuse under a key is structurally excluded.
