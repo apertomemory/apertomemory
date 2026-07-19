@@ -3,8 +3,8 @@
 
 
 Network Working Group                                           A. Ferro
-Internet-Draft                                             DevelopingWeb
-Intended status: Experimental                               19 July 2026
+Internet-Draft                                              19 July 2026
+Intended status: Experimental                                           
 Expires: 20 January 2027
 
 
@@ -494,9 +494,9 @@ Acknowledgments
 Author's Address
 
    Andrea Ferro
-   DevelopingWeb
    Italy
-   Email: draft@apertomemory.example
+   Email: irn@irn3.com
+
 
 
 
