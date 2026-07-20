@@ -34,6 +34,8 @@ pip install apertomemory
 
 The command-line tool is `amem`; the file format is `.amem`.
 
+**New here? Follow the [5-minute getting started guide](GETTING-STARTED.md)** - from install to an assistant that remembers you, including where the MCP config goes for each client.
+
 ## Quick start
 
 ```bash
