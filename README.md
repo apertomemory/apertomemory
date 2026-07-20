@@ -93,3 +93,8 @@ repository under `spec/` and `test-vectors/`.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Implementations
+
+- **Python** (this repository) - reference implementation, generates the test vectors
+- **TypeScript** - https://github.com/apertomemory/apertomemory-js - noble crypto stack, Node.js 20+ and browsers; interoperability with this implementation verified in both directions

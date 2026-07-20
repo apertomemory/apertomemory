@@ -1,0 +1,840 @@
+
+
+
+
+Network Working Group                                           A. Ferro
+Internet-Draft                                              20 July 2026
+Intended status: Experimental                                           
+Expires: 21 January 2027
+
+
+   The ApertoMemory Format: Portable, Client-Side-Encrypted AI Memory
+                      draft-ferro-apertomemory-01
+
+Abstract
+
+   AI assistants and agents accumulate long-term memory about their
+   users.  This memory is typically stored in proprietary, provider-held
+   silos: it cannot be moved between tools, its integrity cannot be
+   verified, and its confidentiality depends entirely on the provider.
+   This document specifies the ApertoMemory format: a canonical, signed,
+   client-side-encrypted representation of AI memory objects, together
+   with a portable single-file export container.  Memory objects are
+   encoded in deterministic CBOR, signed with COSE_Sign1, and encrypted
+   with COSE_Encrypt0 under keys derived from and controlled by the
+   user.  A storage or synchronisation server handling ApertoMemory
+   objects has zero access to their content, authorship, or semantic
+   timestamps.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 21 January 2027.
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+
+
+
+
+
+Ferro                    Expires 21 January 2027                [Page 1]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.  Code Components
+   extracted from this document must include Revised BSD License text as
+   described in Section 4.e of the Trust Legal Provisions and are
+   provided without warranty as described in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   3
+     1.1.  Terminology . . . . . . . . . . . . . . . . . . . . . . .   3
+   2.  Data Model  . . . . . . . . . . . . . . . . . . . . . . . . .   4
+   3.  Encoding and Cryptographic Envelope . . . . . . . . . . . . .   5
+   4.  Key Hierarchy . . . . . . . . . . . . . . . . . . . . . . . .   5
+     4.1.  Scopes and Per-Tool Access  . . . . . . . . . . . . . . .   6
+   5.  Portable Export Container . . . . . . . . . . . . . . . . . .   6
+   6.  Import Semantics  . . . . . . . . . . . . . . . . . . . . . .   7
+   7.  Versioning and Extensibility  . . . . . . . . . . . . . . . .   7
+   8.  Implementation Status . . . . . . . . . . . . . . . . . . . .   7
+   9.  Security Considerations . . . . . . . . . . . . . . . . . . .   8
+     9.1.  Threat Model  . . . . . . . . . . . . . . . . . . . . . .   8
+     9.2.  Memory Poisoning and Persistent Prompt Injection  . . . .   8
+     9.3.  Metadata Leakage  . . . . . . . . . . . . . . . . . . . .   9
+     9.4.  Embeddings  . . . . . . . . . . . . . . . . . . . . . . .   9
+     9.5.  Nonce Management and AEAD Limits  . . . . . . . . . . . .   9
+     9.6.  Key Rotation  . . . . . . . . . . . . . . . . . . . . . .   9
+     9.7.  Device and Key Revocation . . . . . . . . . . . . . . . .  10
+   10. Privacy Considerations  . . . . . . . . . . . . . . . . . . .  10
+   11. IANA Considerations . . . . . . . . . . . . . . . . . . . . .  10
+   12. References  . . . . . . . . . . . . . . . . . . . . . . . . .  11
+     12.1.  Normative References . . . . . . . . . . . . . . . . . .  11
+     12.2.  Informative References . . . . . . . . . . . . . . . . .  12
+   Appendix A.  Test Vectors . . . . . . . . . . . . . . . . . . . .  12
+     A.1.  Vector 001: Sealed Object . . . . . . . . . . . . . . . .  13
+     A.2.  Vector 002: Key Hierarchy . . . . . . . . . . . . . . . .  14
+   Acknowledgments . . . . . . . . . . . . . . . . . . . . . . . . .  15
+   Changes from draft-ferro-apertomemory-00  . . . . . . . . . . . .  15
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  15
+
+
+
+
+
+
+
+
+
+
+
+Ferro                    Expires 21 January 2027                [Page 2]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+1.  Introduction
+
+   Modern AI tools build user-specific memory: preferences, facts,
+   learned behaviours, and procedural knowledge that improve the quality
+   of assistance over time.  This memory constitutes some of the most
+   sensitive personal data in existence, and it is currently locked
+   inside each provider's infrastructure.  Switching tools destroys
+   accumulated context, creating a form of vendor lock-in that operates
+   on personal data rather than on price or features.
+
+   Existing portability efforts move memory as cleartext JSON with no
+   integrity protection, no verifiable provenance, and no
+   confidentiality guarantees against the storage layer.  This document
+   takes the opposite starting point: memory is encrypted and signed on
+   the user's device before it goes anywhere, and every party except the
+   user's own runtime is treated as untrusted.
+
+   This document specifies (1) the memory object data model and its
+   deterministic CBOR encoding, (2) the cryptographic envelope (sign-
+   then-encrypt with COSE), (3) the user-controlled key hierarchy
+   including per-scope access separation, and (4) the portable export
+   container.  Synchronisation protocols and memory extraction from
+   conversations are out of scope.
+
+1.1.  Terminology
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in BCP
+   14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   Memory Object  A single unit of AI memory (a fact, preference, event,
+      or procedure) with metadata.
+
+   Producer  Software that creates and seals Memory Objects on behalf of
+      the user.
+
+   Consumer  Software that opens Memory Objects and uses them to inform
+      AI behaviour.
+
+   Scope  A named partition of memory with its own encryption key,
+      enabling per-tool access control.
+
+   Blind Server  A storage or synchronisation server that handles sealed
+      objects without the ability to decrypt them.
+
+   DEK / KEK  Data Encryption Key (per object) / Key Encryption Key (per
+
+
+
+Ferro                    Expires 21 January 2027                [Page 3]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+      scope).
+
+2.  Data Model
+
+   A sealed Memory Object is a CBOR map containing exactly the fields a
+   Blind Server is permitted to see, plus an encrypted envelope.  All
+   semantic content, including authorship and semantic timestamps, lives
+   inside the envelope.
+
+   The normative schema is expressed in CDDL [RFC8610]:
+
+   sealed-object = {
+     1 => bstr .size 16,   ; id: 128-bit random
+     2 => bstr .size 16,   ; scope_id: opaque random identifier
+     3 => uint,            ; format_version (this document: 1)
+     4 => bstr,            ; COSE_Encrypt0 whose plaintext is a
+                           ;   COSE_Sign1 over memory-payload
+     ? 5 => bstr .size 16, ; dek_wrap_ref (optional)
+   }
+
+   memory-payload = {
+     1 => mem-type,
+     2 => tstr,            ; content (UTF-8 text)
+     3 => confidence,      ; 0.0 .. 1.0
+     4 => provenance,
+     5 => trust-level,
+     ? 6 => [* tstr],      ; tags
+     7 => timestamps,      ; semantic times: MUST NOT appear
+                           ;   outside the envelope
+     ? 8 => embedding,     ; MUST NOT appear outside the envelope
+     ? 9 => time,          ; expires_at
+     ? 10 => {* tstr => any}, ; extensions
+   }
+
+   mem-type = &( episodic: 1, semantic: 2, procedural: 3 )
+   confidence = float .ge 0.0 .le 1.0
+   provenance = {
+     1 => tstr,            ; producing tool identifier
+     2 => bstr .size 8,    ; author_key_id: first 8 bytes of
+                           ;   SHA-256 of author's Ed25519 key
+     ? 3 => tstr,          ; session identifier
+   }
+   trust-level = &( self: 1, trusted: 2,
+                    third-party: 3, unverified: 4 )
+   timestamps = { 1 => time, ? 2 => time }  ; created, updated
+   embedding = { 1 => tstr, 2 => [* float] } ; model, vector
+
+
+
+
+
+Ferro                    Expires 21 January 2027                [Page 4]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   Object identifiers MUST be generated from a cryptographically secure
+   random source.  Time-ordered identifiers (such as UUIDv7) MUST NOT be
+   used, as they leak creation-time metadata to the Blind Server.
+
+   Implementations MUST preserve unknown fields in the extensions map
+   when re-encoding an object (see Section 7).
+
+3.  Encoding and Cryptographic Envelope
+
+   All structures are serialised as deterministically encoded CBOR as
+   defined in Section 4.2 of [RFC8949].
+
+   The envelope construction is sign-then-encrypt:
+
+   1.  The memory-payload map is encoded as deterministic CBOR and
+       signed as the payload of a COSE_Sign1 structure [RFC9052] using
+       EdDSA (Ed25519) [RFC8032].
+
+   2.  The COSE_Sign1 output is encrypted as the payload of a
+       COSE_Encrypt0 structure using an AEAD algorithm under a single-
+       use, per-object DEK with a 96-bit random nonce.
+
+   Placing the signature inside the encryption prevents the Blind Server
+   from learning or correlating authorship.  Signature verification is
+   performed by Consumers after decryption, and Consumers MUST reject
+   objects whose signature does not verify.
+
+   The mandatory-to-implement AEAD algorithm is AES-256-GCM (COSE
+   algorithm 3, [RFC9053]).  ChaCha20/Poly1305 (COSE algorithm 24) is
+   OPTIONAL.  Each DEK MUST encrypt exactly one object; nonce reuse
+   under a given key is thereby structurally excluded, and the random
+   nonce serves as defence in depth.
+
+   All algorithms are referenced by COSE algorithm identifiers.  Future
+   migration (including to post-quantum algorithms) is a registry
+   change, not a format change.
+
+4.  Key Hierarchy
+
+   All keys derive from, or are wrapped towards, material under
+   exclusive user control:
+
+
+
+
+
+
+
+
+
+
+Ferro                    Expires 21 January 2027                [Page 5]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   passphrase --Argon2id--> master secret (32 bytes)
+   master secret --HKDF-SHA256--> Ed25519 seed (signing)
+   master secret --HKDF-SHA256--> X25519 seed (key agreement)
+   scope KEK (32 bytes random)
+       <-- ECDH-ES(X25519) + HKDF-SHA256 + AES-256-KW -- master
+   object DEK (32 bytes random, single object)
+       <-- AES-256-KW -- scope KEK
+
+   The Argon2id [RFC9106] parameters are fixed for format version 1:
+   memory 64 MiB, iterations 3, parallelism 4, 16-byte random salt,
+   32-byte output (the second recommended parameter choice of RFC 9106).
+
+   Key derivation uses HKDF-SHA256 [RFC5869]; key agreement uses X25519
+   [RFC7748].  HKDF info strings provide domain separation:
+   "apertomemory/v1/sign", "apertomemory/v1/ka", and "apertomemory/v1/
+   kek-wrap" concatenated with the scope_id.  Binding the KEK wrap to
+   the scope_id ensures a wrapped KEK cannot be transplanted between
+   scopes.
+
+   Key wrapping uses AES Key Wrap [RFC3394].  Server-side key escrow is
+   out of scope of this format: a lost passphrase without a recovery
+   mechanism means unrecoverable memory, and implementations SHOULD
+   offer user-held recovery codes.
+
+4.1.  Scopes and Per-Tool Access
+
+   Each Scope has its own KEK.  A tool authorised for a subset of scopes
+   receives only those KEKs and is cryptographically unable to open
+   objects outside them.  The scope_id visible to the Blind Server is an
+   opaque random identifier carrying no semantic information about the
+   scope's name or purpose.
+
+5.  Portable Export Container
+
+   The export container serialises a complete memory set into a single
+   file (conventionally with the .amem extension):
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Ferro                    Expires 21 January 2027                [Page 6]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   amem-export = {
+     1 => uint,              ; export_version (this document: 1)
+     2 => vault-public,      ; salt, public keys, wrapped scope KEKs
+     3 => [* bstr],          ; sealed-objects (encoded)
+     4 => {* bstr => bstr},  ; object id => wrapped DEK
+   }
+   vault-public = {
+     "salt" => bstr .size 16,
+     "sign_pub" => bstr .size 32,
+     "ka_pub" => bstr .size 32,
+     "scopes" => {* tstr => scope-entry },
+   }
+   scope-entry = {
+     "scope_id" => bstr .size 16,
+     "kek_wrapped" => bstr,
+     "eph_pub" => bstr .size 32,
+   }
+
+   The container holds only public keys, wrapped keys, and sealed
+   objects; it is therefore safe to transport over untrusted channels.
+   Possession of the file plus the user's passphrase is sufficient to
+   reconstruct the entire memory on a new device.
+
+6.  Import Semantics
+
+   Interoperability requires more than parseability.  A Consumer
+   claiming full conformance MUST take the type, confidence, creation
+   time, and scope of memory objects into account when selecting which
+   objects to surface to an AI system, and SHOULD prefer higher
+   confidence and more recent objects when context is limited.
+
+   Consumers MUST treat objects whose trust-level is not "self" as
+   untrusted data: such content MUST be clearly delimited when placed in
+   an AI context window and MUST NOT be given instruction-level
+   privilege.  See Section 9.2.
+
+7.  Versioning and Extensibility
+
+   The format_version field governs breaking changes.  Additive changes
+   reuse the extensions map; implementations MUST preserve unknown
+   extension fields when re-encoding, so that older tools do not destroy
+   data written by newer tools.
+
+8.  Implementation Status
+
+   This section is to be removed before publishing as an RFC.
+
+
+
+
+
+Ferro                    Expires 21 January 2027                [Page 7]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   This section records the status of known implementations of the
+   format defined by this specification, per the process in [RFC7942].
+   Listing here does not imply endorsement.
+
+   Python (reference implementation)  Package "apertomemory" on PyPI;
+      source at https://github.com/apertomemory/apertomemory.  MIT
+      licence.  Coverage: complete (key hierarchy, seal/open, scopes,
+      vault, export/import container, MCP adapter).  Generates the test
+      vectors in Appendix A.
+
+   TypeScript  Package "apertomemory" for npm; source at
+      https://github.com/apertomemory/apertomemory-js.  MIT licence.
+      Runs on Node.js 20+ and in browsers; no native code.  Coverage:
+      key hierarchy, seal/open, export-container import.  Conformance:
+      reproduces test vector 001 byte for byte from the passphrase;
+      interoperability with the Python implementation verified in both
+      directions (vault exported by Python opens with all signatures
+      verified; objects sealed in TypeScript verify in Python).
+
+9.  Security Considerations
+
+9.1.  Threat Model
+
+   This format protects memory at rest and in transit against: a
+   compromised or curious storage/synchronisation server; the storage
+   provider itself; and network observers.  It intentionally does not
+   protect against the AI runtime to which the user grants memory access
+   (which must read cleartext to function), nor against malware on the
+   user's own device.  Specifications and products building on this
+   format MUST NOT claim protections beyond this model.
+
+9.2.  Memory Poisoning and Persistent Prompt Injection
+
+   A memory object is text that will eventually be placed into an AI
+   system's context.  An attacker who can introduce objects into a
+   user's memory achieves persistent prompt injection: instructions that
+   resurface in every future conversation.  This is substantially more
+   dangerous than single-conversation injection.
+
+   The format's mandatory signed provenance and trust-level field exist
+   to mitigate this class of attack.  Consumers MUST verify signatures
+   before use, MUST NOT elevate non-"self" objects to instruction
+   privilege, and SHOULD surface provenance to users when importing
+   third-party memory sets.
+
+
+
+
+
+
+
+Ferro                    Expires 21 January 2027                [Page 8]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+9.3.  Metadata Leakage
+
+   A Blind Server still observes object counts, sizes, and
+   synchronisation timing, from which usage patterns can be inferred.
+   Semantic timestamps and embeddings MUST only exist inside the
+   encrypted envelope.  Implementations SHOULD pad sealed objects to
+   size classes.  Residual inference from traffic analysis is
+   acknowledged and not fully mitigated by this format.
+
+9.4.  Embeddings
+
+   Embedding vectors permit approximate reconstruction of the text they
+   were computed from.  They are therefore content, not metadata, and
+   MUST be encrypted like content.  Server-side semantic indexing of
+   embeddings is incompatible with this format's security goals; search
+   is a client-side operation over decrypted objects.
+
+9.5.  Nonce Management and AEAD Limits
+
+   The AEAD construction of this format uses a 96-bit random nonce, but
+   its security does not rest on random nonce uniqueness: each DEK is
+   generated for exactly one object and performs exactly one encryption
+   operation.  Nonce reuse under a given key, the catastrophic failure
+   mode of AES-GCM, is therefore structurally excluded rather than
+   probabilistically avoided; the random nonce is defence in depth.
+
+   Implementations MUST NOT reuse a DEK for a second encryption
+   operation, including re-encryption of a modified object: a modified
+   object is a new object with a new DEK.  Because every key encrypts a
+   single message, the per-key invocation limits of AES-GCM are not a
+   practical concern for conforming implementations.  Key wrapping (AES-
+   KW, RFC 3394) is a deterministic, nonce-free construction and is used
+   only over uniformly random key material, which is the setting it is
+   designed for.
+
+9.6.  Key Rotation
+
+   The key hierarchy is designed so that rotation cost is proportional
+   to the scope of the compromise being addressed:
+
+   *  Passphrase change: derive the new master secret, then re-wrap each
+      scope KEK towards the new master key agreement key.  Cost is
+      O(number of scopes); no object is touched, because DEKs are
+      wrapped under KEKs, not under the master secret.
+
+
+
+
+
+
+
+Ferro                    Expires 21 January 2027                [Page 9]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   *  Scope KEK rotation (suspected KEK exposure): generate a new KEK
+      for the scope and re-wrap the DEKs of that scope's objects under
+      it.  Cost is O(objects in the scope); object ciphertexts are not
+      re-encrypted, only their key wraps are replaced.
+
+   *  Signing-identity rotation: a new Ed25519 key changes the author
+      identity going forward.  Signatures made under the previous key
+      remain cryptographically valid; implementations SHOULD retain
+      superseded public keys for verification only and MUST NOT use them
+      to sign new objects.
+
+   A future revision will define an interoperable representation for
+   superseded-key metadata; until then it is implementation-defined.
+
+9.7.  Device and Key Revocation
+
+   Deployments that wrap key material towards per-device keys can revoke
+   a device by removing that device's wraps and rotating the scope KEKs
+   used for objects created thereafter.  Remaining devices keep access
+   to historical objects without mass re-encryption.
+
+   Revocation of this kind is forward-looking: a revoked device that has
+   already cached KEKs or plaintext can retain what it held at
+   revocation time.  This is a fundamental property of any end-to-end-
+   encrypted system, not a defect of this format, and specifications
+   building on this format MUST NOT claim otherwise.  Where retroactive
+   lockout of stored ciphertext is required, implementations achieve it
+   by re-wrapping the affected DEKs under new KEKs and destroying the
+   old wraps (cryptographic erasure of the old access path).
+
+10.  Privacy Considerations
+
+   Erasure of an individual object is achieved by destroying its wrapped
+   DEK (cryptographic erasure); the sealed blob becomes permanently
+   unreadable even if retained by append-only storage.  This provides a
+   technical mechanism for erasure obligations such as those in data
+   protection regulation.
+
+   The export container is itself a data portability mechanism: it gives
+   users a complete, machine-readable, provider-independent copy of
+   their AI memory, aligned with portability rights such as Article 20
+   of the GDPR.
+
+11.  IANA Considerations
+
+   This document requests registration of the following media type in
+   the "Media Types" registry, per [RFC6838]:
+
+
+
+
+Ferro                    Expires 21 January 2027               [Page 10]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   Type name:  application
+   Subtype name:  amem+cbor
+   Required parameters:  N/A
+   Optional parameters:  N/A
+   Encoding considerations:  binary (CBOR)
+   Security considerations:  See Section 8 of this document.  Content is
+      client-side encrypted and signed; the container carries no
+      cleartext user data.
+   Interoperability considerations:  Deterministic CBOR encoding per RFC
+      8949, Section 4.2.
+   Published specification:  This document.
+   Applications that use this media type:  AI memory producers and
+      consumers implementing the ApertoMemory format.
+   Fragment identifier considerations:  N/A
+   Additional information:  File extension: .amem; Macintosh file type
+      code: none.
+   Person and email address to contact:  Andrea Ferro <irn@irn3.com>
+   Intended usage:  COMMON
+   Restrictions on usage:  None
+   Author/Change controller:  IETF
+
+12.  References
+
+12.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC3394]  Schaad, J. and R. Housley, "Advanced Encryption Standard
+              (AES) Key Wrap Algorithm", RFC 3394, DOI 10.17487/RFC3394,
+              September 2002, <https://www.rfc-editor.org/info/rfc3394>.
+
+   [RFC5869]  Krawczyk, H. and P. Eronen, "HMAC-based Extract-and-Expand
+              Key Derivation Function (HKDF)", RFC 5869,
+              DOI 10.17487/RFC5869, May 2010,
+              <https://www.rfc-editor.org/info/rfc5869>.
+
+   [RFC7748]  Langley, A., Hamburg, M., and S. Turner, "Elliptic Curves
+              for Security", RFC 7748, DOI 10.17487/RFC7748, January
+              2016, <https://www.rfc-editor.org/info/rfc7748>.
+
+   [RFC8032]  Josefsson, S. and I. Liusvaara, "Edwards-Curve Digital
+              Signature Algorithm (EdDSA)", RFC 8032,
+              DOI 10.17487/RFC8032, January 2017,
+              <https://www.rfc-editor.org/info/rfc8032>.
+
+
+
+
+Ferro                    Expires 21 January 2027               [Page 11]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8610]  Birkholz, H., Vigano, C., and C. Bormann, "Concise Data
+              Definition Language (CDDL)", RFC 8610,
+              DOI 10.17487/RFC8610, June 2019,
+              <https://www.rfc-editor.org/info/rfc8610>.
+
+   [RFC8949]  Bormann, C. and P. Hoffman, "Concise Binary Object
+              Representation (CBOR)", STD 94, RFC 8949,
+              DOI 10.17487/RFC8949, December 2020,
+              <https://www.rfc-editor.org/info/rfc8949>.
+
+   [RFC9052]  Schaad, J., "CBOR Object Signing and Encryption (COSE):
+              Structures and Process", STD 96, RFC 9052,
+              DOI 10.17487/RFC9052, August 2022,
+              <https://www.rfc-editor.org/info/rfc9052>.
+
+   [RFC9053]  Schaad, J., "CBOR Object Signing and Encryption (COSE):
+              Initial Algorithms", RFC 9053, DOI 10.17487/RFC9053,
+              August 2022, <https://www.rfc-editor.org/info/rfc9053>.
+
+   [RFC9106]  Biryukov, A., Dinu, D., Khovratovich, D., and S.
+              Josefsson, "Argon2 Memory-Hard Function for Password
+              Hashing and Proof-of-Work Applications", RFC 9106,
+              DOI 10.17487/RFC9106, September 2021,
+              <https://www.rfc-editor.org/info/rfc9106>.
+
+12.2.  Informative References
+
+   [RFC6838]  Freed, N., Klensin, J., and T. Hansen, "Media Type
+              Specifications and Registration Procedures", BCP 13,
+              RFC 6838, DOI 10.17487/RFC6838, January 2013,
+              <https://www.rfc-editor.org/info/rfc6838>.
+
+   [RFC7942]  Sheffer, Y. and A. Farrel, "Improving Awareness of Running
+              Code: The Implementation Status Section", BCP 205,
+              RFC 7942, DOI 10.17487/RFC7942, July 2016,
+              <https://www.rfc-editor.org/info/rfc7942>.
+
+Appendix A.  Test Vectors
+
+   All values are lowercase hexadecimal unless noted.  The vectors are
+   machine-readable in the reference repository; the essential values
+   are inlined here.  Vector 001 exercises the sealed-object
+   construction; Vector 002 exercises the key hierarchy and, combined
+   with Vector 001, the full chain from passphrase to verified object.
+
+
+
+Ferro                    Expires 21 January 2027               [Page 12]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+A.1.  Vector 001: Sealed Object
+
+   passphrase (UTF-8): "correct horse battery staple"
+   salt:
+     00112233445566778899aabbccddeeff
+   Argon2id parameters: m = 64 MiB, t = 3, p = 4, output 32 bytes
+   master_secret:
+     aeb08a81bdb9da07c32f8f9d2c87cfba3313c0fdc7468179e494c56680f0
+     ae8d
+   HKDF-SHA256 info "apertomemory/v1/sign" -> Ed25519 seed:
+     fa0a094dc302a1923536255e675ec8aea52f2385ce0aafd4039dd3e735f4
+     e7bb
+   Ed25519 public key:
+     927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf4
+     2b19
+   author_key_id (SHA-256 of public key, first 8 bytes):
+     63c1e89c009c5ad7
+   memory-payload (deterministic CBOR):
+     a701020278444c277574656e7465207072656665726973636520656d6169
+     6c2042324220666f726d616c692c2073656e7a6120656d6f6a692c20636f
+     6e2062756c6c657420706f696e7403fb3feccccccccccccd04a20173616d
+     656d2d74657374766563746f722f302e31024863c1e89c009c5ad7050106
+     826b707265666572656e6365736d636f6d6d756e69636174696f6e07a101
+     1a687b5e90
+   COSE_Sign1 (EdDSA):
+     d2844da201270448617574686f723031a0589ba701020278444c27757465
+     6e7465207072656665726973636520656d61696c2042324220666f726d61
+     6c692c2073656e7a6120656d6f6a692c20636f6e2062756c6c657420706f
+     696e7403fb3feccccccccccccd04a20173616d656d2d7465737476656374
+     6f722f302e31024863c1e89c009c5ad7050106826b707265666572656e63
+     65736d636f6d6d756e69636174696f6e07a1011a687b5e9058400648671d
+     d6c09bb0a10b3ac98e6f084cef6de4e2551b2ab2e96919541e4daeb187ae
+     01aac3cdfb8ed9b47b04e18c7fbc038f8ef27aae439c614d81b2535d9a05
+   DEK:
+     f0e1d2c3b4a5968778695a4b3c2d1e0ff0e1d2c3b4a5968778695a4b3c2d
+     1e0f
+   AEAD nonce:
+     000102030405060708090a0b
+   COSE_Encrypt0 (AES-256-GCM, COSE alg 3):
+     d08343a10103a1054c000102030405060708090a0b590100404e5e9a55ff
+     5faeabfb129e58ff3dcfb1978aae9f04171e6e8081d01e98a004799376c2
+     fc0cdb57b37364bc364a79c625bf6767854b82a3d96d74e65cb3b7213bfa
+     d56226bf77abb47b2f6b241b3942887e52313e0b63c4b1a2376ce447dff6
+     8faf667f79c73b8bcc8d6fed3f3b5ee26e9b91e4c62495e496728884f20f
+     65275be2ee11ab18c18b9031e32f9d9ab130c81637777ffaad6ddcaa88a6
+     e97943a7f9ec5f7f71389f603cfa847b192d9d3fd886c40d4a8ac8915eaf
+     91edb1a1aa253d25b325e7ff5f97b8cabd45c4a9aa14fd58fb95fd210a43
+     32e303f9420d8f113feb639b1d91f45cb6e7a397603ea06c2a6dfda77c4b
+
+
+
+Ferro                    Expires 21 January 2027               [Page 13]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+     3ea39a54a15939c29cfd
+   sealed-object (deterministic CBOR, 323 bytes):
+     a40150a1a2a3a4a5a6a7a8b1b2b3b4b5b6b7b80250c1c2c3c4c5c6c7c8d1
+     d2d3d4d5d6d7d8030104590118d08343a10103a1054c0001020304050607
+     08090a0b590100404e5e9a55ff5faeabfb129e58ff3dcfb1978aae9f0417
+     1e6e8081d01e98a004799376c2fc0cdb57b37364bc364a79c625bf676785
+     4b82a3d96d74e65cb3b7213bfad56226bf77abb47b2f6b241b3942887e52
+     313e0b63c4b1a2376ce447dff68faf667f79c73b8bcc8d6fed3f3b5ee26e
+     9b91e4c62495e496728884f20f65275be2ee11ab18c18b9031e32f9d9ab1
+     30c81637777ffaad6ddcaa88a6e97943a7f9ec5f7f71389f603cfa847b19
+     2d9d3fd886c40d4a8ac8915eaf91edb1a1aa253d25b325e7ff5f97b8cabd
+     45c4a9aa14fd58fb95fd210a4332e303f9420d8f113feb639b1d91f45cb6
+     e7a397603ea06c2a6dfda77c4b3ea39a54a15939c29cfd
+
+A.2.  Vector 002: Key Hierarchy
+
+   Same passphrase, salt, and Argon2id parameters as Vector 001.
+   HKDF-SHA256 info "apertomemory/v1/ka" -> X25519 seed:
+     912abb74c0d4724ccf5e47c2a7413a965c51b39830892d4697186237c4b3
+     74d3
+   User X25519 public key:
+     12218cbdbaefba349f7ea6926fb4a9226fc77762ff79a808f3d8ce0a53e6
+     8c64
+   Ephemeral X25519 seed (fixed for the vector):
+     0fcd44b9c3fc5f841a72390520466c6700ca41c38fae650dc7cc1b890341
+     c456
+   Ephemeral X25519 public key:
+     6c870f25265c137853a45e91565733dc0821a8ba15db46a9dee7720bdd9d
+     876d
+   scope_id:
+     c1c2c3c4c5c6c7c8d1d2d3d4d5d6d7d8
+   Wrap key = HKDF-SHA256(ECDH(eph, user),
+     info = "apertomemory/v1/kek-wrap" || scope_id)
+   KEK:
+     0a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627
+     2829
+   KEK wrapped (AES-256-KW, RFC 3394):
+     3e2882d1eb606d1d6132591832fceeedbb4e13f73fe8b84b6d02b4725ad8
+     37d3f750e429720375e1
+   DEK (as in Vector 001):
+     f0e1d2c3b4a5968778695a4b3c2d1e0ff0e1d2c3b4a5968778695a4b3c2d
+     1e0f
+   DEK wrapped under KEK (AES-256-KW):
+     3b8ab3b1ca3351f5177115b33ff2455113548e7c7221b9ce245302e9bc6a
+     83194f0d7b235203cc03
+   Unwrapping the KEK with the user private key, then the DEK, and
+   decrypting the Vector 001 sealed-object MUST yield the Vector 001
+   memory-payload with a valid signature.
+
+
+
+Ferro                    Expires 21 January 2027               [Page 14]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+Acknowledgments
+
+   The memory-type taxonomy (episodic, semantic, procedural) follows
+   established cognitive-science terminology also adopted by other AI
+   memory efforts.
+
+Changes from draft-ferro-apertomemory-00
+
+   *  Expanded Security Considerations with three new subsections: Nonce
+      Management and AEAD Limits, Key Rotation, and Device and Key
+      Revocation.
+   *  Added an Implementation Status section (RFC 7942) documenting two
+      interoperable implementations (Python reference and TypeScript).
+   *  No changes to the wire format, the CDDL schema, or the test
+      vectors: implementations of -00 remain conforming.
+
+Author's Address
+
+   Andrea Ferro
+   Italy
+   Email: irn@irn3.com
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Ferro                    Expires 21 January 2027               [Page 15]
