@@ -1,5 +1,10 @@
 # ApertoMemory
 
+[![CI](https://github.com/apertomemory/apertomemory/actions/workflows/ci.yml/badge.svg)](https://github.com/apertomemory/apertomemory/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/apertomemory)](https://pypi.org/project/apertomemory/)
+[![IETF I-D](https://img.shields.io/badge/IETF-draft--ferro--apertomemory--00-blue)](https://datatracker.ietf.org/doc/draft-ferro-apertomemory/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 **Portable, client-side-encrypted, user-owned AI memory.**
 
 Every AI tool remembers you differently — and only within its own walls.
@@ -16,7 +21,8 @@ provider can read it. No vendor can hold it hostage.
 - **Portable**: export your entire memory as a single `.amem` file and
   import it anywhere — a complete vault fits in kilobytes.
 - **Open**: MIT-licensed reference implementation, CDDL schema, test
-  vectors, and an IETF Internet-Draft (`draft-ferro-apertomemory`).
+  vectors, and an IETF Internet-Draft
+  ([draft-ferro-apertomemory](https://datatracker.ietf.org/doc/draft-ferro-apertomemory/)).
 
 Website: https://apertomemory.org
 
@@ -49,11 +55,15 @@ The vault and the `.amem` file never contain cleartext keys or content.
 
 Run the tests: `python3 tests/test_roundtrip.py`
 
-## MCP adapter (Claude Desktop / Claude Code)
+## Security
 
-```bash
-pip install "apertomemory[mcp]"
-```
+The design uses standard, well-reviewed primitives, but this project
+has **not yet had an independent security audit**. Until it does,
+treat it accordingly — and if you find a vulnerability, please report
+it privately: see [SECURITY.md](SECURITY.md). Cryptographic review of
+the specification is explicitly invited.
+
+## MCP adapter (Claude Desktop / Claude Code)
 
 ```json
 {
@@ -76,9 +86,9 @@ and the AI already knows you.
 ## Specification
 
 The format is specified in an IETF Internet-Draft
-(`draft-ferro-apertomemory`), with a normative CDDL schema and
-machine-readable test vectors in this repository under `spec/` and
-`test-vectors/`.
+([draft-ferro-apertomemory](https://datatracker.ietf.org/doc/draft-ferro-apertomemory/)),
+with a normative CDDL schema and machine-readable test vectors in this
+repository under `spec/` and `test-vectors/`.
 
 ## License
 
