@@ -29,6 +29,12 @@ before either had a user affected.
 Test vectors 010–014 cover all five. Two tests in the review suite had quietly
 become defenders of the defect rather than of the code, and were inverted.
 
+Also in this release: the TypeScript implementation (npm `apertomemory` 0.2.1)
+now writes `format_version` 2 and conforms to all fourteen v2 test vectors,
+including the six refusal cases; interoperability with the Python
+implementation is verified in both directions. This closes the last item in
+0.2.0's "Still open" list. The other three items there remain open.
+
 ## 0.2.0 — security release (format_version 2)
 
 **Users of 0.1.x should upgrade and run `amem migrate`. Read the migration
@@ -139,5 +145,7 @@ must update. This is a deliberate breaking change on a security boundary.
   an offline verification oracle against the passphrase. Argon2id
   (m=64 MiB, t=3, p=4) is the only barrier: use a strong passphrase.
 * No recovery code yet: a lost passphrase means lost memory.
-* The TypeScript implementation still writes format_version 1 and has the same
-  binding defects. It must be updated before interoperability can be claimed.
+* ~~The TypeScript implementation still writes format_version 1 and has the
+  same binding defects. It must be updated before interoperability can be
+  claimed.~~ **Resolved in 0.2.1:** the TypeScript implementation now writes
+  `format_version` 2 and conforms to all fourteen v2 vectors.
