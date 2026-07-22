@@ -1,6 +1,6 @@
 {
   "format_version": 2,
-  "generated_by": "apertomemory 0.2.0 (Python reference)",
+  "generated_by": "apertomemory 0.2.1 (Python reference)",
   "note": "These vectors are the normative artefact. Implementations are conformant if they reproduce the byte strings and enforce every MUST-REJECT case. Vectors 010-012 cover cases found by adversarial probing after the first release.",
   "vectors": {
     "001-key-hierarchy": {
@@ -201,5 +201,6 @@
         "author_key_id": null
       }
     }
-  }
+  },
+  "vector_set": "001-014"
 }
