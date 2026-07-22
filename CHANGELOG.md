@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.1 — custody attestations are only honoured from the vault owner
+
+Found by adversarial probing across the two independent implementations,
+before either had a user affected.
+
+* **Custody is an attestation by the custodian.** A custody record is now
+  honoured only when the verified signer is the vault owner. Previously any
+  third party in your keyring could write a custody record attributing content
+  to you — or to anyone else — and have it read as `trusted`. This was
+  provenance laundering in the opposite direction from the one 0.2.0 closed:
+  not the owner appropriating a stranger's memory, but a stranger putting words
+  in the owner's mouth.
+* **Self-inconsistent objects are refused.** The COSE protected header `kid`
+  and the payload `author_key_id` are both signed. If they disagree, the object
+  is refused rather than resolved in favour of one of them: two consumers
+  reading different fields would otherwise disagree about who wrote it.
+* **Unaccepted attestations name no author.** When a custody record names a
+  proven author that is not in the keyring, `author_key_id` is `null` and
+  `authorship` is `unknown` — not the key we declined to accept.
+* **Out-of-range `confidence` is not propagated.** The object is authentic so
+  it still opens, but the value is reported as `null` with the schema violation
+  flagged. Consumers rank memories by confidence; propagating a value outside
+  [0.0, 1.0] lets a non-conformant producer dominate every ranking.
+* **Malformed custody sub-maps degrade instead of throwing.** An empty custody
+  record yields `unverified`, never an exception.
+
+Test vectors 010–014 cover all five. Two tests in the review suite had quietly
+become defenders of the defect rather than of the code, and were inverted.
+
 ## 0.2.0 — security release (format_version 2)
 
 **Users of 0.1.x should upgrade and run `amem migrate`. Read the migration
