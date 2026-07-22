@@ -1,61 +1,284 @@
 ; =====================================================================
-; ApertoMemory v0.1 — CDDL Schema (RFC 8610)
+; ApertoMemory v0.2 — CDDL Schema (RFC 8610)
 ; Serialisation: deterministic CBOR (RFC 8949 s4.2)
 ; Normative reference: draft-ferro-apertomemory (see /draft)
+; Conformance is defined by /test-vectors/v2 (vector set 001-014):
+;   reproducing the byte strings is necessary but NOT sufficient - six
+;   of the fourteen vectors are refusal cases.
+; =====================================================================
+;
+; WHO THIS SCHEMA BINDS
+;
+; The rules below define what a conformant PRODUCER emits. They are not
+; the whole of conformance, and a consumer that merely rejects whatever
+; fails to validate is not conformant either.
+;
+; A consumer has a second, separate obligation: to handle input that
+; does NOT match this schema without failing catastrophically. Hostile
+; and corrupt objects exist, and refusing to read a whole container
+; because one object inside it is malformed is a denial of service on
+; the user's entire memory.
+;
+; So: a validator SHOULD reject a payload carrying an empty custody
+; record (test vector 014), because no producer may write one - and an
+; implementation MUST still read the container it lives in, degrade that
+; object's trust, and carry on. Both are required. Neither substitutes
+; for the other.
+;
+; Where the two obligations meet, the prose sections below say which is
+; which explicitly.
 ; =====================================================================
 
-; What a Blind Server is allowed to see:
+; ---------------------------------------------------------------------
+; 1. What a Blind Server is allowed to see (root rule)
+; ---------------------------------------------------------------------
 sealed-object = {
   1 => bstr .size 16,   ; id: 128-bit random (NOT UUIDv7: time-ordered
                         ;   ids leak creation-time metadata)
   2 => bstr .size 16,   ; scope_id: opaque random identifier
-  3 => uint,            ; format_version (v1 = 1)
+  3 => uint,            ; format_version (current = 2; 1 = legacy)
   4 => bstr,            ; COSE_Encrypt0 (AES-256-GCM, COSE alg 3, MTI;
                         ;   alg 24 OPTIONAL) whose plaintext is a
-                        ;   COSE_Sign1 (EdDSA) over memory-payload
+                        ;   COSE_Sign1 (EdDSA) over memory-payload.
+                        ;   Both carry envelope-aad as external_aad.
   ? 5 => bstr .size 16, ; dek_wrap_ref (optional)
 }
 ; Sign-then-encrypt: the signature lives INSIDE the ciphertext.
 ; The server can neither learn nor verify authorship; verification
 ; happens client-side after decryption.
 
+; ---------------------------------------------------------------------
+; 2. The two bindings (new in format_version 2)
+; ---------------------------------------------------------------------
+; v1 objects carried no cryptographic relationship between a signature,
+; the author it claimed, and the cleartext envelope around it. Both are
+; now bound.
+
+; ENVELOPE BINDING. This structure is supplied as COSE external_aad to
+; BOTH the COSE_Sign1 and the COSE_Encrypt0 of every object. It is never
+; transmitted: it is reconstructed by the reader from the cleartext
+; envelope, so rewriting id, scope_id or format_version invalidates the
+; AEAD tag. Version downgrade is detected for the same reason.
+envelope-aad = [
+  uint,                 ; format_version, as it appears in the envelope
+  bstr .size 16,        ; id, as it appears in the envelope
+  bstr .size 16,        ; scope_id, as it appears in the envelope
+]
+; Serialised as deterministic CBOR before use.
+
+; AUTHOR BINDING. The author_key_id inside the signed payload MUST equal
+; the first 8 bytes of SHA-256 over the public key that verified the
+; signature. A signer therefore cannot claim an identity it cannot
+; prove. The kid in the COSE protected header MUST carry the same value:
+; both are signed, so a disagreement between them makes the object
+; self-inconsistent and it MUST be refused (test vector 010).
+
+; ---------------------------------------------------------------------
+; 3. The signed payload
+; ---------------------------------------------------------------------
 memory-payload = {
   1 => mem-type,
-  2 => tstr,            ; content: UTF-8 text (v1: text only)
+  2 => tstr,            ; content: UTF-8 text (v0.2: text only)
   3 => confidence,      ; 0.0 .. 1.0
   4 => provenance,
-  5 => trust-level,
+  5 => trust-level,     ; INFORMATIONAL ONLY - see s4
   ? 6 => [* tstr],      ; tags
   7 => timestamps,      ; SEMANTIC times — MUST NOT appear in cleartext
-  ? 8 => embedding,     ; MUST travel encrypted only (spec s9.4)
-  ? 9 => time,          ; expires_at
-  ? 10 => {* tstr => any}, ; extensions; unknown fields MUST be
-                        ;   preserved on rewrite
+  ? 8 => embedding,     ; RESERVED - see s3.1. MUST travel encrypted only
+  ? 9 => epoch-seconds, ; expires_at. RESERVED - see s3.1
+  ? 10 => {* tstr => any}, ; extensions. RESERVED - see s3.1
+  ? 20 => custody,      ; present iff this object was re-sealed - see s5
+  * uint => any,        ; unrecognised keys MUST be preserved on rewrite
 }
+
+; --- s3.1 Reserved keys -----------------------------------------------
+; Keys 8, 9 and 10 are reserved and carry the shapes given above, but no
+; v0.2 implementation interprets them: they are read, preserved verbatim
+; on rewrite, and otherwise ignored. Consumers MUST NOT rely on them.
+;
+; expires_at (9) in particular is NOT enforced. An expired object is
+; still returned. Do not build an expiry guarantee on it until an
+; implementation states that it honours the field.
+;
+; Key 5 of sealed-object (dek_wrap_ref) is likewise reserved: no v0.2
+; implementation emits or reads it.
+;
+; This section exists because a schema that describes a field nobody
+; implements is the same defect as a README that claims a defence the
+; code does not provide. Stating the gap is the fix.
 
 mem-type = &( episodic: 1, semantic: 2, procedural: 3 )
-confidence = float .ge 0.0 .le 1.0
+
+confidence = float .ge 0.0
+; The normative range is 0.0 .. 1.0 inclusive. CDDL tooling does not
+; express a closed float interval portably - chained control operators
+; and float ranges are rejected by common validators - so the upper
+; bound is stated here and enforced by test vector 013 rather than by
+; the schema. A producer MUST NOT write above 1.0.
+; A producer MUST NOT write a value outside this range. A consumer that
+; reads one MUST NOT propagate it: the object is authentic, so it is not
+; refused, but the value is reported as absent and the schema violation
+; flagged. Consumers rank memories by confidence, and propagating an
+; out-of-range value would let a non-conformant producer dominate every
+; ranking (test vector 013).
+
 provenance = {
-  1 => tstr,            ; producing tool (e.g. "amem-cli/0.1")
+  1 => tstr,            ; producing tool (e.g. "amem-cli/0.2")
   2 => bstr .size 8,    ; author_key_id: first 8 bytes of SHA-256 of
-                        ;   the author's Ed25519 public key
+                        ;   the author's Ed25519 public key. Bound to
+                        ;   the verifying key - see s1.
   ? 3 => tstr,          ; session identifier
 }
+
 trust-level = &( self: 1, trusted: 2, third-party: 3, unverified: 4 )
-; Consumers MUST treat trust != self as untrusted data (spec s9.2)
-timestamps = { 1 => time, ? 2 => time }   ; created, updated
+; third-party (3) is reserved: v0.2 derives only self, trusted and
+; unverified. It is retained for wire compatibility with v1 payloads.
+
+timestamps = { 1 => epoch-seconds, ? 2 => epoch-seconds }  ; created, updated
+
+epoch-seconds = uint
+; Seconds since 1970-01-01T00:00:00Z, as a BARE uint.
+;
+; Deliberately not the CDDL prelude "time", which is #6.1(number) - a
+; tag-1 epoch datetime. Every object written so far, and every test
+; vector, carries an untagged integer. Tagging them now would invalidate
+; every existing vault to gain nothing: the field is unambiguous as it
+; stands. The schema records what the format is, not what it might have
+; been.
+;
+; This divergence was found by validating the vectors with a second,
+; independent CDDL implementation. The first one did not enforce the
+; tag, and the schema quietly disagreed with every object in existence.
 embedding = { 1 => tstr, 2 => [* float] } ; model, vector
 
+; ---------------------------------------------------------------------
+; 3.2 What a producer MUST refuse to write
+; ---------------------------------------------------------------------
+; The rules above constrain what a consumer does with a bad value. A
+; conformant producer refuses to create one in the first place, and
+; MUST fail rather than emit an object where:
+;
+;   * confidence is absent, NaN, infinite, or outside 0.0 .. 1.0;
+;   * content is not a non-empty UTF-8 string;
+;   * mem-type is outside the enumeration.
+;
+; A consumer, by contrast, is deliberately more tolerant on read: it
+; reports an unrecognised mem-type verbatim rather than refusing the
+; object, because refusing to read is a worse failure than reporting an
+; unknown type. Strict on write, lenient on read.
+
+; ---------------------------------------------------------------------
+; 4. Trust is derived, never declared
+; ---------------------------------------------------------------------
+; Field 5 above is carried for wire compatibility and MUST NOT be read
+; as authoritative. A consumer derives trust from WHICH KEY verified the
+; signature:
+;
+;   verified by the vault owner's key          -> self
+;   verified by an accepted third-party key    -> trusted
+;   not verified, or verified by a key that is
+;     no longer accepted                       -> unverified
+;
+; Trust is evaluated at read time against the current set of accepted
+; keys, and MUST NOT be frozen into the object: revoking a key downgrades
+; every memory attributed to it, with no rewrite.
+;
+; Verification is fail-closed. A consumer that cannot authenticate an
+; object MUST NOT return its content by default; reading it requires an
+; explicit opt-in and yields trust = unverified.
+;
+; Consumers MUST treat trust != self as untrusted DATA and MUST NOT give
+; it instruction-level privilege (spec s9.2). This is the whole point of
+; the author binding: without it, hostile text could claim to be the
+; user's own memory.
+
+; ---------------------------------------------------------------------
+; 5. Custody records
+; ---------------------------------------------------------------------
+; Re-sealing an object changes its signer. A migrated object's signature
+; therefore proves CUSTODY, not authorship, and the object says so.
+custody = {
+  1 => uint,            ; the format_version it was re-sealed from
+  2 => bstr .size 8,    ; author_key_id claimed by the original object
+  3 => epoch-seconds,   ; when it was re-sealed
+  ? 4 => bstr .size 8,  ; author_key_id PROVEN at re-seal time; absent
+                        ;   means authorship could not be proven
+}
+;
+; Rules, each with a vector:
+;
+;   * An object carrying a custody record MUST NOT resolve to trust
+;     self, whoever signed it. The custodian did not write it.
+;   * A custody record is an attestation BY THE CUSTODIAN: it is
+;     honoured only when the verified signer is the vault owner.
+;     Honouring one signed by anyone else would let any accepted third
+;     party attribute content to the owner (test vector 011).
+;   * Field 4 present and naming a currently accepted key -> trusted,
+;     and the PROVEN author is reported, not the signer.
+;   * Field 4 absent, or naming a key that is not accepted -> unverified,
+;     and NO author is reported: not the signer, and not the unaccepted
+;     key (test vectors 008, 012).
+;   * A malformed or empty custody record degrades trust; it MUST NOT
+;     raise. A sub-map that throws is a denial of service on the whole
+;     container (test vector 014).
+;
+; Note on vector 014: its payload deliberately does NOT conform to the
+; rule above - an empty map has none of the required keys. That is the
+; point of the vector, and the keys stay mandatory on purpose: making
+; them optional would declare an empty custody record legal to WRITE,
+; which it is not.
+;
+; A validator will reject that payload, and it should. An implementation
+; must nevertheless read it, degrade it to unverified, and continue -
+; see WHO THIS SCHEMA BINDS at the top. The two obligations are separate
+; and this vector exists precisely to keep them from being confused.
+
+; ---------------------------------------------------------------------
+; 6. Legacy objects
+; ---------------------------------------------------------------------
+; format_version 1 objects carry neither binding: their signature proves
+; only internal consistency, and their envelope is unauthenticated. They
+; MUST NOT be reported as verified. They may be read under the same
+; explicit opt-in as any unauthenticated object, always as
+; trust = unverified (test vector 009), and should be re-sealed.
+;
+; Re-sealing follows s5: only objects whose authorship can be proven
+; under a key the reader accepts may be re-sealed without a custody
+; record.
+
+; ---------------------------------------------------------------------
+; 7. Deletion
+; ---------------------------------------------------------------------
 tombstone = {
   1 => bstr .size 16,   ; id of the deleted object
   2 => bstr,            ; COSE_Sign1 over the deletion act
-  3 => time,            ; deleted_at (cleartext: the server needs GC)
+  3 => epoch-seconds,   ; deleted_at (cleartext: the server needs GC)
 }
 ; Actual deletion is DEK destruction (crypto-shredding); the tombstone
 ; is the sync signal, not the deletion mechanism.
+;
+; NOT IMPLEMENTED in v0.2. No reference implementation emits or consumes
+; tombstones; this section describes the intended sync semantics only.
+; It is documented here rather than removed because the shape is part of
+; the format's design, but no consumer should expect to receive one.
 
 ; ---------------------------------------------------------------------
-; Key hierarchy (spec s6) — proven by test vectors 001/002:
+; 8. Containers
+; ---------------------------------------------------------------------
+; A container (.amem export) carries vault metadata, the sealed objects
+; and the wrapped DEKs. Two rules govern reading one:
+;
+;   * Failures MUST be isolated per object. One hostile or corrupt
+;     object must never prevent the rest of the container from being
+;     read: a container-wide failure is a denial of service on the
+;     user's entire memory.
+;   * The set of accepted third-party keys travels in the container
+;     metadata and is what makes an attested object resolve to trusted.
+;     With an empty set the same objects MUST degrade to unverified.
+
+; ---------------------------------------------------------------------
+; 9. Key hierarchy (spec s6) — proven by test vectors 001/002
+; ---------------------------------------------------------------------
 ; passphrase --Argon2id(m=64MiB,t=3,p=4,salt16,out32)--> master secret
 ; master --HKDF-SHA256--> Ed25519 seed ("apertomemory/v1/sign")
 ; master --HKDF-SHA256--> X25519 seed  ("apertomemory/v1/ka")
@@ -64,3 +287,7 @@ tombstone = {
 ; object DEK (single object) <-- AES-256-KW -- scope KEK
 ; AEAD nonce: 96-bit random per envelope; each DEK encrypts exactly one
 ; object, so nonce reuse under a key is structurally excluded.
+;
+; The HKDF info strings retain the "v1" label: the key hierarchy did not
+; change in format_version 2, and altering the labels would break every
+; existing vault for no security benefit.
