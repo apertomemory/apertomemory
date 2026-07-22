@@ -1,0 +1,1512 @@
+
+
+
+
+Network Working Group                                           A. Ferro
+Internet-Draft                                              22 July 2026
+Intended status: Experimental                                           
+Expires: 23 January 2027
+
+
+   The ApertoMemory Format: Portable, Client-Side-Encrypted AI Memory
+                      draft-ferro-apertomemory-02
+
+Abstract
+
+   AI assistants and agents accumulate long-term memory about their
+   users.  This memory is typically stored in proprietary, provider-held
+   silos: it cannot be moved between tools, its integrity cannot be
+   verified, and its confidentiality depends entirely on the provider.
+   This document specifies the ApertoMemory format: a canonical, signed,
+   client-side-encrypted representation of AI memory objects, together
+   with a portable single-file export container.  Memory objects are
+   encoded in deterministic CBOR, signed with COSE_Sign1, and encrypted
+   with COSE_Encrypt0 under keys derived from and controlled by the
+   user.  A storage or synchronisation server handling ApertoMemory
+   objects has zero access to their content, authorship, or semantic
+   timestamps.
+
+   This revision specifies format_version 2, which cryptographically
+   binds every signature to the author it claims and to the cleartext
+   envelope around it, and derives trust from which key verified an
+   object rather than from a declared field. format_version 1, described
+   by earlier revisions of this document, carries a known forgeable-
+   provenance defect and MUST NOT be implemented for new deployments.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 23 January 2027.
+
+
+
+
+Ferro                    Expires 23 January 2027                [Page 1]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.  Code Components
+   extracted from this document must include Revised BSD License text as
+   described in Section 4.e of the Trust Legal Provisions and are
+   provided without warranty as described in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   3
+     1.1.  Terminology . . . . . . . . . . . . . . . . . . . . . . .   3
+     1.2.  The format_version 1 Defect . . . . . . . . . . . . . . .   4
+   2.  Conformance: Who This Specification Binds . . . . . . . . . .   5
+   3.  Data Model  . . . . . . . . . . . . . . . . . . . . . . . . .   5
+     3.1.  Reserved Fields . . . . . . . . . . . . . . . . . . . . .   7
+     3.2.  What a Producer Must Refuse to Write  . . . . . . . . . .   7
+   4.  Encoding and Cryptographic Envelope . . . . . . . . . . . . .   8
+   5.  The Two Bindings  . . . . . . . . . . . . . . . . . . . . . .   8
+     5.1.  Envelope Binding  . . . . . . . . . . . . . . . . . . . .   9
+     5.2.  Author Binding  . . . . . . . . . . . . . . . . . . . . .   9
+   6.  Trust Is Derived, Never Declared  . . . . . . . . . . . . . .   9
+   7.  Custody Records . . . . . . . . . . . . . . . . . . . . . . .  10
+   8.  Conversion Paths Between Trust Levels . . . . . . . . . . . .  12
+     8.1.  Migration . . . . . . . . . . . . . . . . . . . . . . . .  12
+     8.2.  Import  . . . . . . . . . . . . . . . . . . . . . . . . .  13
+     8.3.  The AI Boundary . . . . . . . . . . . . . . . . . . . . .  15
+   9.  Key Hierarchy . . . . . . . . . . . . . . . . . . . . . . . .  16
+     9.1.  Scopes and Per-Tool Access  . . . . . . . . . . . . . . .  17
+   10. Portable Export Container . . . . . . . . . . . . . . . . . .  17
+   11. Consumer Behaviour  . . . . . . . . . . . . . . . . . . . . .  18
+   12. Legacy Objects (format_version 1) . . . . . . . . . . . . . .  18
+   13. Versioning and Extensibility  . . . . . . . . . . . . . . . .  18
+   14. Implementation Status . . . . . . . . . . . . . . . . . . . .  18
+   15. Security Considerations . . . . . . . . . . . . . . . . . . .  19
+     15.1.  Threat Model . . . . . . . . . . . . . . . . . . . . . .  19
+     15.2.  Memory Poisoning and Persistent Prompt Injection . . . .  19
+     15.3.  Metadata Leakage . . . . . . . . . . . . . . . . . . . .  20
+     15.4.  Embeddings . . . . . . . . . . . . . . . . . . . . . . .  20
+     15.5.  Nonce Management and AEAD Limits . . . . . . . . . . . .  20
+     15.6.  Key Rotation . . . . . . . . . . . . . . . . . . . . . .  20
+     15.7.  Device and Key Revocation  . . . . . . . . . . . . . . .  21
+
+
+
+Ferro                    Expires 23 January 2027                [Page 2]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+     15.8.  Offline Verification Oracle  . . . . . . . . . . . . . .  21
+     15.9.  Residual and Accepted Risks  . . . . . . . . . . . . . .  21
+   16. Privacy Considerations  . . . . . . . . . . . . . . . . . . .  22
+   17. IANA Considerations . . . . . . . . . . . . . . . . . . . . .  22
+   18. References  . . . . . . . . . . . . . . . . . . . . . . . . .  23
+     18.1.  Normative References . . . . . . . . . . . . . . . . . .  23
+     18.2.  Informative References . . . . . . . . . . . . . . . . .  24
+   Appendix A.  Test Vectors . . . . . . . . . . . . . . . . . . . .  24
+   Acknowledgments . . . . . . . . . . . . . . . . . . . . . . . . .  26
+   Changes from draft-ferro-apertomemory-01  . . . . . . . . . . . .  26
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  27
+
+1.  Introduction
+
+   Modern AI tools build user-specific memory: preferences, facts,
+   learned behaviours, and procedural knowledge that improve the quality
+   of assistance over time.  This memory constitutes some of the most
+   sensitive personal data in existence, and it is currently locked
+   inside each provider's infrastructure.  Switching tools destroys
+   accumulated context, creating a form of vendor lock-in that operates
+   on personal data rather than on price or features.
+
+   Existing portability efforts move memory as cleartext JSON with no
+   integrity protection, no verifiable provenance, and no
+   confidentiality guarantees against the storage layer.  This document
+   takes the opposite starting point: memory is encrypted and signed on
+   the user's device before it goes anywhere, and every party except the
+   user's own runtime is treated as untrusted.
+
+   This document specifies (1) the memory object data model and its
+   deterministic CBOR encoding, (2) the cryptographic envelope (sign-
+   then-encrypt with COSE) and the two bindings that authenticate it,
+   (3) trust derivation and Custody Records, (4) the conversion paths
+   between trust levels (migration, import, and the AI boundary), (5)
+   the user-controlled key hierarchy including per-scope access
+   separation, and (6) the portable export container.  Synchronisation
+   protocols and memory extraction from conversations are out of scope.
+
+1.1.  Terminology
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in BCP
+   14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   Memory Object  A single unit of AI memory (a fact, preference, event,
+      or procedure) with metadata.
+
+
+
+Ferro                    Expires 23 January 2027                [Page 3]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   Producer  Software that creates and seals Memory Objects on behalf of
+      the user.
+
+   Consumer  Software that opens Memory Objects and uses them to inform
+      AI behaviour.
+
+   Owner  The holder of a vault's passphrase-derived identity; the party
+      whose signing key is the vault's own.
+
+   Keyring  The set of third-party author public keys the Owner
+      currently accepts.  Membership is evaluated at read time.
+
+   Custody Record  A signed payload field marking an object as re-sealed
+      by someone other than its original author.  An object carrying one
+      can never resolve to trust "self".
+
+   Re-sealing  Decrypting an object and sealing its payload again,
+      necessarily under a new signature and DEK.  Re-sealing changes the
+      signer.
+
+   Scope  A named partition of memory with its own encryption key,
+      enabling per-tool access control.
+
+   Blind Server  A storage or synchronisation server that handles sealed
+      objects without the ability to decrypt them.
+
+   DEK / KEK  Data Encryption Key (per object) / Key Encryption Key (per
+      scope).
+
+1.2.  The format_version 1 Defect
+
+   format_version 1, specified by draft-ferro-apertomemory-00 and -01,
+   contained three related defects, disclosed as [GHSA]: nothing bound a
+   signature to the author_key_id it claimed, so a signer could sign
+   with its own key while claiming another identity and verification
+   still succeeded; nothing authenticated the cleartext envelope (id,
+   scope_id, format_version), so a storage server could rewrite those
+   fields undetected; and verification failed open, returning content
+   together with an ignorable boolean.  An object crafted this way, once
+   surfaced to an AI system as a trusted memory, could carry
+   instructions attributed to the user (Section 15.2).
+
+   format_version 2 closes all three with the two bindings of Section 5
+   and the fail-closed derivation rules of Section 6.  Implementations
+   MUST NOT create format_version 1 objects, and MUST NOT report them as
+   verified (Section 12).  Implementations of the earlier revisions of
+   this document do not conform to this one.
+
+
+
+
+Ferro                    Expires 23 January 2027                [Page 4]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+2.  Conformance: Who This Specification Binds
+
+   The schema and rules of this document bind Producers and Consumers
+   differently, and both obligations are required for conformance.
+
+   A Producer is bound strictly: it MUST NOT emit an object that
+   violates this specification (Section 3.2).  A Consumer has a second,
+   separate obligation: it MUST handle input that does not match this
+   specification without failing catastrophically.  Hostile and corrupt
+   objects exist, and refusing to read a whole container because one
+   object inside it is malformed is a denial of service on the user's
+   entire memory.  So a validator SHOULD reject a payload carrying an
+   empty Custody Record, because no Producer may write one -- and an
+   implementation MUST still read the container it lives in, degrade
+   that object's trust, and carry on.  Both are required; neither
+   substitutes for the other.  Where the two obligations meet, this
+   document states which is which.
+
+   Conformance for format_version 2 is defined by the test-vector set of
+   Appendix A: fourteen vectors, six of which are refusal cases.
+   Reproducing the byte strings of the positive vectors is necessary but
+   not sufficient; an implementation that reproduces every byte and
+   refuses none of the attacks implements the defect the vectors exist
+   to catch.  This is stated with unusual emphasis because
+   format_version 1 was byte-compatible with implementations that
+   checked nothing.
+
+3.  Data Model
+
+   A sealed Memory Object is a CBOR map containing exactly the fields a
+   Blind Server is permitted to see, plus an encrypted envelope.  All
+   semantic content, including authorship and semantic timestamps, lives
+   inside the envelope.
+
+   The normative schema is expressed in CDDL [RFC8610]:
+
+   sealed-object = {
+     1 => bstr .size 16,   ; id: 128-bit random (NOT UUIDv7:
+                           ;   time-ordered ids leak creation time)
+     2 => bstr .size 16,   ; scope_id: opaque random identifier
+     3 => uint,            ; format_version (this document: 2;
+                           ;   1 = legacy, see Section on Legacy)
+     4 => bstr,            ; COSE_Encrypt0 (AES-256-GCM, COSE alg 3,
+                           ;   MTI; alg 24 OPTIONAL) whose plaintext
+                           ;   is a COSE_Sign1 (EdDSA) over
+                           ;   memory-payload. Both carry
+                           ;   envelope-aad as external_aad.
+     ? 5 => bstr .size 16, ; dek_wrap_ref (RESERVED)
+
+
+
+Ferro                    Expires 23 January 2027                [Page 5]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   }
+
+   memory-payload = {
+     1 => mem-type,
+     2 => tstr,            ; content: UTF-8 text (this rev: text only)
+     3 => confidence,      ; 0.0 .. 1.0
+     4 => provenance,
+     5 => trust-level,     ; INFORMATIONAL ONLY - Section on Trust
+     ? 6 => [* tstr],      ; tags
+     7 => timestamps,      ; SEMANTIC times - MUST NOT appear
+                           ;   in cleartext
+     ? 8 => embedding,     ; RESERVED - MUST travel encrypted only
+     ? 9 => epoch-seconds, ; expires_at. RESERVED
+     ? 10 => {* tstr => any}, ; extensions. RESERVED
+     ? 20 => custody,      ; present iff re-sealed - Section on
+                           ;   Custody Records
+     * uint => any,        ; unrecognised keys MUST be preserved
+                           ;   on rewrite
+   }
+
+   mem-type = &( episodic: 1, semantic: 2, procedural: 3 )
+
+   confidence = float .ge 0.0
+
+   provenance = {
+     1 => tstr,            ; producing tool (e.g. "amem-cli/0.2")
+     2 => bstr .size 8,    ; author_key_id: first 8 bytes of
+                           ;   SHA-256 of the author's Ed25519
+                           ;   public key. BOUND to the verifying
+                           ;   key - Section on Author Binding.
+     ? 3 => tstr,          ; session identifier
+   }
+
+   trust-level = &( self: 1, trusted: 2,
+                    third-party: 3, unverified: 4 )
+   ; third-party (3) is reserved: this revision derives only
+   ; self, trusted and unverified. Retained for wire
+   ; compatibility with v1 payloads.
+
+   timestamps = { 1 => epoch-seconds, ? 2 => epoch-seconds }
+                           ; created, updated
+
+   epoch-seconds = uint    ; seconds since 1970-01-01T00:00:00Z,
+                           ;   as a BARE uint (see below)
+
+   embedding = { 1 => tstr, 2 => [* float] } ; model, vector
+
+
+
+
+
+Ferro                    Expires 23 January 2027                [Page 6]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   Object identifiers MUST be generated from a cryptographically secure
+   random source.  Time-ordered identifiers (such as UUIDv7) MUST NOT be
+   used, as they leak creation-time metadata to the Blind Server.
+
+   The normative range of confidence is 0.0 to 1.0 inclusive.  CDDL
+   tooling does not express a closed float interval portably -- chained
+   control operators on float ranges are rejected by common validators
+   -- so the upper bound is stated here and enforced by test vector 013
+   rather than by the schema.  A Producer MUST NOT write a value outside
+   this range.  A Consumer that reads one MUST NOT propagate it: the
+   object is authentic, so it is not refused, but the value is reported
+   as absent and the schema violation flagged (Section 8.3).
+
+   Timestamps are bare unsigned integers, deliberately not the CDDL
+   prelude "time" (a tag-1 epoch datetime).  Every object written so
+   far, and every test vector, carries an untagged integer; requiring
+   the tag now would invalidate every existing vault to gain nothing.
+   The schema records what the format is, not what it might have been.
+   (This divergence was found by validating the vectors with a second,
+   independent CDDL implementation.)
+
+   Unrecognised integer keys in memory-payload MUST be preserved byte
+   for byte when an object is re-encoded (see Section 13).
+
+3.1.  Reserved Fields
+
+   Keys 8 (embedding), 9 (expires_at) and 10 (extensions) of memory-
+   payload, and key 5 (dek_wrap_ref) of sealed-object, are reserved:
+   they carry the shapes given above, but no current implementation
+   interprets them.  They are read, preserved verbatim on rewrite, and
+   otherwise ignored.  Consumers MUST NOT rely on them.
+
+   expires_at in particular is NOT enforced: an expired object is still
+   returned.  No expiry guarantee exists until an implementation states
+   that it honours the field.
+
+   This subsection exists because a schema that describes a field nobody
+   implements is the same defect as documentation that claims a defence
+   the code does not provide.  Stating the gap is the fix.
+
+3.2.  What a Producer Must Refuse to Write
+
+   A conformant Producer MUST fail rather than emit an object where:
+   confidence is absent, NaN, infinite, or outside 0.0 to 1.0; content
+   is not a non-empty UTF-8 string; or mem-type is outside the
+   enumeration.  It MUST NOT write an empty or incomplete Custody Record
+   (Section 7).
+
+
+
+
+Ferro                    Expires 23 January 2027                [Page 7]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   A Consumer, by contrast, is deliberately more tolerant on read: it
+   reports an unrecognised mem-type verbatim rather than refusing the
+   object, because refusing to read is a worse failure than reporting an
+   unknown type.  Strict on write, lenient on read.
+
+4.  Encoding and Cryptographic Envelope
+
+   All structures are serialised as deterministically encoded CBOR as
+   defined in Section 4.2 of [RFC8949].
+
+   The envelope construction is sign-then-encrypt:
+
+   1.  The memory-payload map is encoded as deterministic CBOR and
+       signed as the payload of a COSE_Sign1 structure [RFC9052] using
+       EdDSA (Ed25519) [RFC8032], with the envelope-aad of Section 5.1
+       supplied as external_aad.
+
+   2.  The COSE_Sign1 output is encrypted as the payload of a
+       COSE_Encrypt0 structure using an AEAD algorithm under a single-
+       use, per-object DEK with a 96-bit random nonce, with the same
+       envelope-aad supplied as external_aad.
+
+   Placing the signature inside the encryption prevents the Blind Server
+   from learning or correlating authorship.  The server can neither
+   learn nor verify authorship; signature verification is performed by
+   Consumers after decryption, and Consumers MUST reject objects whose
+   signature does not verify (Section 6).
+
+   The mandatory-to-implement AEAD algorithm is AES-256-GCM (COSE
+   algorithm 3, [RFC9053]).  ChaCha20/Poly1305 (COSE algorithm 24) is
+   OPTIONAL.  Each DEK MUST encrypt exactly one object; nonce reuse
+   under a given key is thereby structurally excluded, and the random
+   nonce serves as defence in depth.
+
+   All algorithms are referenced by COSE algorithm identifiers.  Future
+   migration (including to post-quantum algorithms) is a registry
+   change, not a format change.
+
+5.  The Two Bindings
+
+   format_version 1 objects carried no cryptographic relationship
+   between a signature, the author it claimed, and the cleartext
+   envelope around it. format_version 2 binds both.
+
+
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027                [Page 8]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+5.1.  Envelope Binding
+
+   The following structure, serialised as deterministic CBOR, is
+   supplied as COSE external_aad to BOTH the COSE_Sign1 and the
+   COSE_Encrypt0 of every object:
+
+   envelope-aad = [
+     uint,                 ; format_version, as in the envelope
+     bstr .size 16,        ; id, as in the envelope
+     bstr .size 16,        ; scope_id, as in the envelope
+   ]
+
+   It is never transmitted: the reader reconstructs it from the
+   cleartext envelope.  Rewriting id, scope_id or format_version
+   therefore invalidates the AEAD tag (test vector 005).  A version
+   downgrade -- rewriting format_version from 2 to 1 to strip the
+   bindings -- is detected for the same reason (test vector 006).
+
+5.2.  Author Binding
+
+   The author_key_id inside the signed payload MUST equal the first 8
+   bytes of SHA-256 over the public key that verified the signature.  A
+   signer therefore cannot claim an identity it cannot prove: an object
+   signed with one key while declaring another's author_key_id MUST be
+   refused under every key (test vector 004).
+
+   The kid in the COSE protected header MUST carry the same value.  Both
+   the kid and the payload field are signed, so a disagreement between
+   them makes the object self-inconsistent: two Consumers reading
+   different fields would disagree about who wrote it.  Such an object
+   MUST be refused rather than resolved in favour of either field (test
+   vector 010).
+
+6.  Trust Is Derived, Never Declared
+
+   The trust-level field of memory-payload is carried for wire
+   compatibility and MUST NOT be read as authoritative.  A Consumer
+   derives trust from which key verified the signature:
+
+
+
+
+
+
+
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027                [Page 9]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+         +=======================================+===============+
+         | Signature verified by                 | Derived trust |
+         +=======================================+===============+
+         | the vault Owner's key                 | self          |
+         +---------------------------------------+---------------+
+         | an accepted third-party key (Keyring) | trusted       |
+         +---------------------------------------+---------------+
+         | no key, or a key no longer accepted   | unverified    |
+         +---------------------------------------+---------------+
+
+                         Table 1: Trust Derivation
+
+   Trust is evaluated at read time against the current Keyring, and MUST
+   NOT be frozen into the object: revoking a key downgrades every memory
+   attributed to it, with no rewrite.
+
+   Verification is fail-closed.  A Consumer that cannot authenticate an
+   object MUST NOT return its content by default; reading it requires an
+   explicit opt-in and yields trust "unverified".
+
+   Consumers MUST treat content whose derived trust is not "self" as
+   untrusted DATA and MUST NOT give it instruction-level privilege
+   (Section 15.2).  This is the whole point of the author binding:
+   without it, hostile text could claim to be the user's own memory.
+
+   An object carrying a Custody Record additionally reports its
+   authorship as described in Section 7: derived provenance
+   distinguishes the signer of the object as it stands from the author
+   of its content, and reports "signed", "attested" or "unknown"
+   authorship accordingly.
+
+7.  Custody Records
+
+   Re-sealing an object changes its signer.  A re-sealed object's
+   signature therefore proves CUSTODY, not authorship -- and the object
+   says so, by carrying a Custody Record (memory-payload key 20):
+
+   custody = {
+     1 => uint,            ; format_version it was re-sealed from
+     2 => bstr .size 8,    ; author_key_id claimed by the
+                           ;   original object
+     3 => epoch-seconds,   ; when it was re-sealed
+     ? 4 => bstr .size 8,  ; author_key_id PROVEN at re-seal
+                           ;   time; absent = authorship could
+                           ;   not be proven
+   }
+
+   The rules, each pinned by a test vector:
+
+
+
+Ferro                    Expires 23 January 2027               [Page 10]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   *  An object carrying a Custody Record MUST NOT resolve to trust
+      "self", whoever signed it.  The custodian did not write it.
+
+   *  A Custody Record is an attestation BY THE CUSTODIAN: it is
+      honoured only when the verified signer is the vault Owner.
+      Honouring one signed by anyone else would let any accepted third
+      party attribute content to the Owner -- or to anyone -- and have
+      it read as trusted (test vector 011).
+
+   *  Field 4 present and naming a currently accepted key: the object
+      opens as trust "trusted", authorship "attested", and the PROVEN
+      author -- not the signer -- is reported as author_key_id (test
+      vector 007).
+
+   *  Field 4 absent, or naming a key that is not accepted: the object
+      opens as trust "unverified", authorship "unknown", and NO author
+      is reported: not the signer, and not the unaccepted key.  The
+      unproven original claim is exposed separately as a claimed author
+      (test vectors 008, 012).
+
+   *  A malformed or empty Custody Record degrades trust to
+      "unverified"; it MUST NOT raise an error that aborts reading.  A
+      sub-map that throws is a denial of service on the whole container
+      (test vector 014).
+
+    +=========+============+============+============+===============+
+    | custody | field 4    | trust      | authorship | author_key_id |
+    |         | (proven    |            |            |               |
+    |         | author)    |            |            |               |
+    +=========+============+============+============+===============+
+    | absent  | --         | self /     | signed     | the verified  |
+    |         |            | trusted    |            | signer        |
+    +---------+------------+------------+------------+---------------+
+    | present | names an   | trusted    | attested   | the proven    |
+    |         | accepted   |            |            | author        |
+    |         | key        |            |            |               |
+    +---------+------------+------------+------------+---------------+
+    | present | absent or  | unverified | unknown    | none reported |
+    |         | unaccepted |            |            |               |
+    +---------+------------+------------+------------+---------------+
+
+                       Table 2: Custody Resolution
+
+
+
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027               [Page 11]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   Note on test vector 014: its payload deliberately does NOT conform to
+   the custody rule above -- an empty map has none of the required keys.
+   That is the point of the vector, and the keys stay mandatory on
+   purpose: making them optional would declare an empty Custody Record
+   legal to WRITE, which it is not.  A validator will reject that
+   payload, and it should; an implementation must nevertheless read it,
+   degrade it to "unverified", and continue (Section 2).
+
+8.  Conversion Paths Between Trust Levels
+
+   Most of this format holds trust constant: a sealed object is written
+   at one trust level and read back at the same one.  Three paths do
+   not.  They take data from one trust domain and emit it into another:
+   migration (from the unbound format_version 1 into format_version 2),
+   import (from an external container into a vault), and the AI boundary
+   (from sealed objects into an AI system's context window).  Every
+   defect found in this format so far was found on one of these paths:
+   the forgeable provenance of format_version 1 ([GHSA]), the import
+   that destroyed the identity of an existing vault, the migration that
+   would have re-signed hostile objects as the Owner's own (caught in
+   review before release), and the custody attestation honoured from any
+   accepted key.  This is not a coincidence.  A forgery only pays off
+   where trust changes, so these are the paths an attacker studies, and
+   they are specified here with the same care as the cryptography.
+
+   The rule uniting the three subsections: a conversion path MUST NOT
+   output data at a higher trust level than it can prove for its input,
+   and where proof is impossible the path MUST either refuse or
+   explicitly mark the output as unproven.  Silent upgrade is the defect
+   class; each subsection names the form it takes on that path.
+
+8.1.  Migration
+
+   Migration re-seals format_version 1 objects as format_version 2.
+   Because re-sealing changes the signer, migration is a transfer of
+   trust, not a format conversion: after migration, the object's
+   signature proves custody by whoever re-sealed it, not authorship.  An
+   object may therefore keep trust "self" only if its original signature
+   actually verifies under the Owner's currently accepted signing key.
+
+   A migration tool MUST classify every object into exactly one of the
+   following outcomes, and MUST NOT invent a fourth:
+
+   MIGRATE  The object's v1 signature verifies under the Owner's own
+      key.  It is re-sealed under the Owner's key with no Custody Record
+      and keeps trust "self".
+
+   ATTRIBUTE  The object's v1 signature verifies under a third-party key
+
+
+
+Ferro                    Expires 23 January 2027               [Page 12]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+      in the Owner's Keyring.  It is re-sealed by the Owner carrying a
+      Custody Record whose field 4 names the proven author.  It
+      subsequently opens as trust "trusted", never "self", and the
+      proven author -- not the signer -- is reported as the author (test
+      vector 007).  Because trust is derived at read time, revoking that
+      key later downgrades the object to "unverified" with no rewrite.
+
+   REFUSE  The object's authorship cannot be proven under any key the
+      Owner accepts.  By default it is left untouched, unmigrated, and
+      individually reported.  As an explicit opt-in (quarantine), it MAY
+      instead be re-sealed carrying a Custody Record with no field 4: it
+      then opens as trust "unverified", reports no author, and keeps the
+      unproven original claim separately as a claimed author (test
+      vector 008).  A Custody Record permanently prevents trust "self",
+      whoever signs the object.
+
+   The defect this taxonomy exists to prevent is provenance laundering:
+   a migration that re-signs unproven objects under the Owner's key
+   without a Custody Record would let any hostile v1 object sitting in a
+   scope come out of an ordinary upgrade signed by the user and trusted
+   as their own -- converting a store-compromise into persistent prompt
+   injection with first-person authority (Section 15.2).  An earlier,
+   unreleased revision of the reference implementation had exactly this
+   defect.
+
+   Two further requirements:
+
+   *  Isolation and atomicity.  Each object MUST be migrated in
+      isolation and written atomically.  A corrupt or hostile object is
+      reported and skipped; it MUST NOT abort the migration of the
+      others or leave the vault half-migrated.
+
+   *  Residual exposure, stated. format_version 1 carries no envelope
+      binding, so a verified v1 signature proves authorship of the
+      content, not of the object's (id, scope_id) placement.  An
+      adversary with write access to storage could have relocated a
+      genuine v1 object into another scope before migration, and
+      migration cannot detect this.  The exposure ends once objects are
+      format_version 2.  Migration tools MUST NOT claim placement
+      authenticity for migrated v1 content.
+
+8.2.  Import
+
+   Import converts sealed objects from an external container
+   (Section 10) into vault state.  The container arrives over an
+   untrusted channel, so import is the path by which an attacker
+   delivers crafted objects wholesale; exploitation of [GHSA] required
+   exactly this (or write access to the victim's store).
+
+
+
+Ferro                    Expires 23 January 2027               [Page 13]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   An importer MUST enforce all of the following, in an order such that
+   nothing is written until every check has passed:
+
+   *  Proof of holdership before any write.  The importer derives the
+      identity from the supplied passphrase and the container's salt and
+      MUST verify that the derived public signing key equals the
+      container's sign_pub.  A wrong passphrase is refused before any
+      state changes.
+
+   *  Identity separation.  Importing into an existing vault whose
+      sign_pub differs from the container's MUST be refused.  Under this
+      revision an import can only merge a user's own memory; cross-
+      identity import requires KEK re-wrapping and is out of scope.
+      Into a fresh (empty) vault, the importer adopts the container's
+      identity: that is the new-device flow, and it is gated by the same
+      passphrase proof.
+
+   *  Merge without overwrite.  Scopes present in both the vault and the
+      container keep the vault's entry; a scope from the container is
+      added only if its name is not already present.  An import MUST NOT
+      overwrite existing scope keys, and MUST NOT replace the identity
+      of an existing vault.  (An earlier implementation destroyed the
+      vault identity on import; this requirement is why.)
+
+   *  Structural validation per object.  Every sealed object is checked
+      for well-formedness (the four mandatory envelope keys, a known
+      scope_id) before being stored.  Malformed objects are rejected
+      individually.
+
+   Import moves ciphertext; it MUST NOT assign or upgrade trust.
+   Objects acquired by import are opened later under the ordinary
+   derivation rules (Section 6) against the Keyring in force at read
+   time.  In particular, an imported Custody Record is honoured only if
+   the verified signer is the vault Owner (test vector 011): a container
+   is not a side channel for attestations.
+
+   Finally, the checks above MUST live in the single import
+   implementation used by every entry point -- library, command line,
+   and any adapter.  In an earlier release the guard existed only in the
+   MCP adapter, and the library path underneath it had none.  A guard on
+   one door of a building with several doors is a claim the building
+   cannot keep.
+
+
+
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027               [Page 14]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+8.3.  The AI Boundary
+
+   The last conversion is the one the format exists for: sealed objects
+   become cleartext in an AI system's context window, typically through
+   a local adapter such as an MCP server.  This crossing leaves the
+   cryptographic domain entirely -- no signature, binding, or AEAD tag
+   survives into the context window -- so everything the Consumer will
+   ever know about an object's trust must be derived before the boundary
+   and travel across it as explicit labels.
+
+   At this boundary:
+
+   *  Derive first, fail closed.  Signature verification and trust
+      derivation MUST complete before content crosses.  An object that
+      cannot be authenticated MUST NOT cross by default; reading it
+      requires the explicit opt-in of Section 12 and it crosses labelled
+      "unverified".
+
+   *  Exclusion MUST be reported.  When objects are withheld because
+      they failed authentication, the adapter MUST report to the
+      Consumer that objects were excluded, and how many.  Silent
+      exclusion is indistinguishable from deletion for the user, and it
+      hides an ongoing attack: excluded objects are exactly the ones
+      somebody tampered with.
+
+   *  Per-object isolation.  One hostile or corrupt object MUST NOT
+      prevent the remaining objects from crossing.  A recall that throws
+      on the first malformed custody map (test vector 014) is a denial
+      of service on the user's entire memory, triggerable by a single
+      crafted object.
+
+   *  Data, not instructions.  Content whose derived trust is not "self"
+      MUST be delimited as third-party data when placed in the context
+      window and MUST NOT be given instruction-level privilege
+      (Section 15.2).  The author binding exists so that this rule has
+      something solid to stand on: without it, hostile text could simply
+      claim to be the user's own memory.
+
+   *  Ranking inputs are validated.  Consumers rank memories, typically
+      by confidence and recency, when deciding what crosses a limited
+      context window.  A confidence outside 0.0 to 1.0 MUST be reported
+      as absent rather than propagated (test vector 013): otherwise a
+      non-conformant or hostile Producer dominates every ranking and
+      thereby chooses what the AI system remembers.
+
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027               [Page 15]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   *  The passphrase stays on the near side.  The passphrase and all
+      derived secrets MUST NOT be exposed to the AI system or appear in
+      any tool output crossing the boundary.  In the reference adapter
+      the passphrase reaches the process only through its environment.
+
+   The three paths differ in mechanism but not in shape: each converts
+   data across a trust boundary, each has hosted a real defect, and each
+   is specified as a set of refusals.  An implementation that reproduces
+   every byte of the test vectors but refuses nothing implements the
+   defect these paths exist to close.
+
+9.  Key Hierarchy
+
+   All keys derive from, or are wrapped towards, material under
+   exclusive user control:
+
+   passphrase --Argon2id--> master secret (32 bytes)
+   master secret --HKDF-SHA256--> Ed25519 seed (signing)
+   master secret --HKDF-SHA256--> X25519 seed (key agreement)
+   scope KEK (32 bytes random)
+       <-- ECDH-ES(X25519) + HKDF-SHA256 + AES-256-KW -- master
+   object DEK (32 bytes random, single object)
+       <-- AES-256-KW -- scope KEK
+
+   The Argon2id [RFC9106] parameters are fixed: memory 64 MiB,
+   iterations 3, parallelism 4, 16-byte random salt, 32-byte output (the
+   second recommended parameter choice of RFC 9106).
+
+   Key derivation uses HKDF-SHA256 [RFC5869]; key agreement uses X25519
+   [RFC7748].  HKDF info strings provide domain separation:
+   "apertomemory/v1/sign", "apertomemory/v1/ka", and "apertomemory/v1/
+   kek-wrap" concatenated with the scope_id.  Binding the KEK wrap to
+   the scope_id ensures a wrapped KEK cannot be transplanted between
+   scopes.
+
+   The key hierarchy did not change in format_version 2, and the HKDF
+   info strings deliberately retain the "v1" label: altering them would
+   break every existing vault for no security benefit.  The label names
+   the hierarchy, not the object format.
+
+   Key wrapping uses AES Key Wrap [RFC3394].  Server-side key escrow is
+   out of scope of this format: a lost passphrase without a recovery
+   mechanism means unrecoverable memory, and implementations SHOULD
+   offer user-held recovery codes.
+
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027               [Page 16]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+9.1.  Scopes and Per-Tool Access
+
+   Each Scope has its own KEK.  A tool authorised for a subset of scopes
+   receives only those KEKs and is cryptographically unable to open
+   objects outside them.  The scope_id visible to the Blind Server is an
+   opaque random identifier carrying no semantic information about the
+   scope's name or purpose.
+
+10.  Portable Export Container
+
+   The export container serialises a complete memory set into a single
+   file (conventionally with the .amem extension):
+
+   amem-export = {
+     1 => uint,              ; export_version (this document: 1)
+     2 => vault-public,      ; salt, public keys, wrapped scope
+                             ;   KEKs, accepted author keys
+     3 => [* bstr],          ; sealed-objects (encoded)
+     4 => {* bstr => bstr},  ; object id => wrapped DEK
+   }
+   vault-public = {
+     "salt" => bstr .size 16,
+     "sign_pub" => bstr .size 32,
+     "ka_pub" => bstr .size 32,
+     "scopes" => {* tstr => scope-entry },
+     ? "known_keys" => {* tstr => bstr .size 32 },
+                             ; accepted third-party author keys:
+                             ;   hex key_id => Ed25519 public key
+   }
+   scope-entry = {
+     "scope_id" => bstr .size 16,
+     "kek_wrapped" => bstr,
+     "eph_pub" => bstr .size 32,
+   }
+
+   The container holds only public keys, wrapped keys, and sealed
+   objects; it is therefore safe to transport over untrusted channels.
+   Possession of the file plus the user's passphrase is sufficient to
+   reconstruct the entire memory on a new device.
+
+   Two rules govern reading a container:
+
+   *  Failures MUST be isolated per object.  One hostile or corrupt
+      object must never prevent the rest of the container from being
+      read: a container-wide failure is a denial of service on the
+      user's entire memory.  A corrupt container that cannot be parsed
+      at all MUST produce a clean, single error rather than leak parser
+      internals.
+
+
+
+Ferro                    Expires 23 January 2027               [Page 17]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   *  The set of accepted third-party author keys travels in the
+      container metadata (known_keys) and is what makes an attested
+      object resolve to trust "trusted" after import.  With an empty or
+      absent set, the same objects MUST degrade to "unverified"
+      (Section 6).
+
+11.  Consumer Behaviour
+
+   Interoperability requires more than parseability.  A Consumer
+   claiming full conformance MUST take the type, confidence, creation
+   time, and scope of memory objects into account when selecting which
+   objects to surface to an AI system, and SHOULD prefer higher
+   confidence and more recent objects when context is limited -- subject
+   to the validation rule of Section 8.3 on out-of-range confidence.
+
+   Consumers MUST apply the derivation rules of Section 6 and the
+   boundary rules of Section 8.3 whenever memory content is surfaced to
+   an AI system.
+
+12.  Legacy Objects (format_version 1)
+
+   format_version 1 objects carry neither binding: their signature
+   proves only internal consistency, and their envelope is
+   unauthenticated.  They MUST NOT be reported as verified.  They MAY be
+   read under the same explicit opt-in as any unauthenticated object,
+   always as trust "unverified" (test vector 009), and SHOULD be re-
+   sealed by migration.
+
+   Re-sealing follows Section 8.1: only objects whose authorship can be
+   proven under a key the reader accepts may be re-sealed without a
+   Custody Record.
+
+13.  Versioning and Extensibility
+
+   The format_version field governs breaking changes, and is protected
+   against downgrade by the envelope binding (Section 5.1).  Additive
+   changes use new integer keys in memory-payload or the reserved
+   extensions map; implementations MUST preserve unrecognised keys byte
+   for byte when re-encoding, so that older tools do not destroy data
+   written by newer tools.
+
+14.  Implementation Status
+
+   This section is to be removed before publishing as an RFC.
+
+   This section records the status of known implementations of the
+   format defined by this specification, per the process in [RFC7942].
+   Listing here does not imply endorsement.
+
+
+
+Ferro                    Expires 23 January 2027               [Page 18]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   Python (reference implementation)  Package "apertomemory" on PyPI,
+      version 0.2.1; source at https://github.com/apertomemory/
+      apertomemory.  MIT licence.  Coverage: complete (key hierarchy,
+      seal/open with both bindings, trust derivation, custody records,
+      migration, scopes, vault, export/import container, MCP adapter).
+      Generates the format_version 2 test-vector set and conforms to all
+      fourteen vectors, including the six refusal cases.
+
+   TypeScript  Package "apertomemory" for npm, version 0.2.1; source at
+      https://github.com/apertomemory/apertomemory-js.  MIT licence.
+      Runs on Node.js 20+ and in browsers; no native code.  Conforms to
+      all fourteen format_version 2 vectors, including the six refusal
+      cases; interoperability with the Python implementation verified in
+      both directions.
+
+15.  Security Considerations
+
+15.1.  Threat Model
+
+   This format protects memory at rest and in transit against: a
+   compromised or curious storage/synchronisation server; the storage
+   provider itself; and network observers.  With format_version 2 this
+   includes servers that tamper: rewriting an object's envelope or
+   downgrading its version is detected (Section 5.1).  It intentionally
+   does not protect against the AI runtime to which the user grants
+   memory access (which must read cleartext to function), nor against
+   malware on the user's own device.  Specifications and products
+   building on this format MUST NOT claim protections beyond this model.
+
+15.2.  Memory Poisoning and Persistent Prompt Injection
+
+   A memory object is text that will eventually be placed into an AI
+   system's context.  An attacker who can introduce objects into a
+   user's memory achieves persistent prompt injection: instructions that
+   resurface in every future conversation.  This is substantially more
+   dangerous than single-conversation injection.
+
+   The format's defence is the chain from author binding to derived
+   trust to the boundary rules: Consumers MUST verify signatures before
+   use, MUST NOT elevate non-"self" objects to instruction privilege,
+   and SHOULD surface provenance to users when importing third-party
+   memory sets. format_version 1 made this defence claimable but not
+   keepable, because authorship was forgeable (Section 1.2);
+   format_version 2 exists to make it hold.
+
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027               [Page 19]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+15.3.  Metadata Leakage
+
+   A Blind Server still observes object counts, sizes, and
+   synchronisation timing, from which usage patterns can be inferred.
+   Semantic timestamps and embeddings MUST only exist inside the
+   encrypted envelope.  Implementations SHOULD pad sealed objects to
+   size classes.  Residual inference from traffic analysis is
+   acknowledged and not fully mitigated by this format.
+
+15.4.  Embeddings
+
+   Embedding vectors permit approximate reconstruction of the text they
+   were computed from.  They are therefore content, not metadata, and
+   MUST be encrypted like content.  Server-side semantic indexing of
+   embeddings is incompatible with this format's security goals; search
+   is a client-side operation over decrypted objects.
+
+15.5.  Nonce Management and AEAD Limits
+
+   The AEAD construction of this format uses a 96-bit random nonce, but
+   its security does not rest on random nonce uniqueness: each DEK is
+   generated for exactly one object and performs exactly one encryption
+   operation.  Nonce reuse under a given key, the catastrophic failure
+   mode of AES-GCM, is therefore structurally excluded rather than
+   probabilistically avoided; the random nonce is defence in depth.
+
+   Implementations MUST NOT reuse a DEK for a second encryption
+   operation, including re-encryption of a modified object: a modified
+   object is a new object with a new DEK.  Because every key encrypts a
+   single message, the per-key invocation limits of AES-GCM are not a
+   practical concern for conforming implementations.  Key wrapping (AES-
+   KW, RFC 3394) is a deterministic, nonce-free construction and is used
+   only over uniformly random key material, which is the setting it is
+   designed for.
+
+15.6.  Key Rotation
+
+   The key hierarchy is designed so that rotation cost is proportional
+   to the scope of the compromise being addressed:
+
+   *  Passphrase change: derive the new master secret, then re-wrap each
+      scope KEK towards the new master key agreement key.  Cost is
+      O(number of scopes); no object is touched, because DEKs are
+      wrapped under KEKs, not under the master secret.
+
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027               [Page 20]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   *  Scope KEK rotation (suspected KEK exposure): generate a new KEK
+      for the scope and re-wrap the DEKs of that scope's objects under
+      it.  Cost is O(objects in the scope); object ciphertexts are not
+      re-encrypted, only their key wraps are replaced.
+
+   *  Signing-identity rotation: a new Ed25519 key changes the author
+      identity going forward.  Signatures made under the previous key
+      remain cryptographically valid; implementations SHOULD retain
+      superseded public keys for verification only and MUST NOT use them
+      to sign new objects.
+
+   Because trust is derived at read time (Section 6), removing a key
+   from the Keyring immediately downgrades every object attributed to
+   it, including objects attested by Custody Records, with no rewrite.
+   A future revision will define an interoperable representation for
+   superseded-key metadata; until then it is implementation-defined.
+
+15.7.  Device and Key Revocation
+
+   Deployments that wrap key material towards per-device keys can revoke
+   a device by removing that device's wraps and rotating the scope KEKs
+   used for objects created thereafter.  Remaining devices keep access
+   to historical objects without mass re-encryption.
+
+   Revocation of this kind is forward-looking: a revoked device that has
+   already cached KEKs or plaintext can retain what it held at
+   revocation time.  This is a fundamental property of any end-to-end-
+   encrypted system, not a defect of this format, and specifications
+   building on this format MUST NOT claim otherwise.  Where retroactive
+   lockout of stored ciphertext is required, implementations achieve it
+   by re-wrapping the affected DEKs under new KEKs and destroying the
+   old wraps (cryptographic erasure of the old access path).
+
+15.8.  Offline Verification Oracle
+
+   An .amem container carries the vault salt and the public signing key,
+   which together give an attacker holding the file an offline
+   verification oracle against the passphrase: derive, compare, repeat.
+   The Argon2id parameters (memory 64 MiB, iterations 3, parallelism 4)
+   are the only barrier, and they bound the attacker's rate, not their
+   eventual success against a weak passphrase.  Users MUST be advised to
+   choose strong passphrases; implementations MUST NOT weaken the fixed
+   Argon2id parameters.
+
+15.9.  Residual and Accepted Risks
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027               [Page 21]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   *  Migration proves authorship of content, not placement: a v1 object
+      relocated between scopes before migration is not detected
+      (Section 8.1).  The exposure ends once objects are format_version
+      2.
+
+   *  Reserved fields are not enforced; in particular expires_at
+      provides no expiry guarantee (Section 3.1).
+
+   *  The construction combines standard primitives (COSE, HPKE-style
+      key agreement, Argon2id, AES-KW) in a straightforward way, but the
+      construction as a whole has not received an independent audit at
+      the time of writing.
+
+16.  Privacy Considerations
+
+   Erasure of an individual object is achieved by destroying its wrapped
+   DEK (cryptographic erasure); the sealed blob becomes permanently
+   unreadable even if retained by append-only storage.  This provides a
+   technical mechanism for erasure obligations such as those in data
+   protection regulation.
+
+   The export container is itself a data portability mechanism: it gives
+   users a complete, machine-readable, provider-independent copy of
+   their AI memory, aligned with portability rights such as Article 20
+   of the GDPR.
+
+17.  IANA Considerations
+
+   This document requests registration of the following media type in
+   the "Media Types" registry, per [RFC6838]:
+
+   Type name:  application
+   Subtype name:  amem+cbor
+   Required parameters:  N/A
+   Optional parameters:  N/A
+   Encoding considerations:  binary (CBOR)
+   Security considerations:  See the Security Considerations section of
+      this document.  Content is client-side encrypted and signed; the
+      container carries no cleartext user data.
+   Interoperability considerations:  Deterministic CBOR encoding per RFC
+      8949, Section 4.2.
+   Published specification:  This document.
+   Applications that use this media type:  AI memory producers and
+      consumers implementing the ApertoMemory format.
+   Fragment identifier considerations:  N/A
+   Additional information:  File extension: .amem; Macintosh file type
+      code: none.
+   Person and email address to contact:  Andrea Ferro <irn@irn3.com>
+
+
+
+Ferro                    Expires 23 January 2027               [Page 22]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   Intended usage:  COMMON
+   Restrictions on usage:  None
+   Author/Change controller:  IETF
+
+18.  References
+
+18.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC3394]  Schaad, J. and R. Housley, "Advanced Encryption Standard
+              (AES) Key Wrap Algorithm", RFC 3394, DOI 10.17487/RFC3394,
+              September 2002, <https://www.rfc-editor.org/info/rfc3394>.
+
+   [RFC5869]  Krawczyk, H. and P. Eronen, "HMAC-based Extract-and-Expand
+              Key Derivation Function (HKDF)", RFC 5869,
+              DOI 10.17487/RFC5869, May 2010,
+              <https://www.rfc-editor.org/info/rfc5869>.
+
+   [RFC7748]  Langley, A., Hamburg, M., and S. Turner, "Elliptic Curves
+              for Security", RFC 7748, DOI 10.17487/RFC7748, January
+              2016, <https://www.rfc-editor.org/info/rfc7748>.
+
+   [RFC8032]  Josefsson, S. and I. Liusvaara, "Edwards-Curve Digital
+              Signature Algorithm (EdDSA)", RFC 8032,
+              DOI 10.17487/RFC8032, January 2017,
+              <https://www.rfc-editor.org/info/rfc8032>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8610]  Birkholz, H., Vigano, C., and C. Bormann, "Concise Data
+              Definition Language (CDDL)", RFC 8610,
+              DOI 10.17487/RFC8610, June 2019,
+              <https://www.rfc-editor.org/info/rfc8610>.
+
+   [RFC8949]  Bormann, C. and P. Hoffman, "Concise Binary Object
+              Representation (CBOR)", STD 94, RFC 8949,
+              DOI 10.17487/RFC8949, December 2020,
+              <https://www.rfc-editor.org/info/rfc8949>.
+
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027               [Page 23]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   [RFC9052]  Schaad, J., "CBOR Object Signing and Encryption (COSE):
+              Structures and Process", STD 96, RFC 9052,
+              DOI 10.17487/RFC9052, August 2022,
+              <https://www.rfc-editor.org/info/rfc9052>.
+
+   [RFC9053]  Schaad, J., "CBOR Object Signing and Encryption (COSE):
+              Initial Algorithms", RFC 9053, DOI 10.17487/RFC9053,
+              August 2022, <https://www.rfc-editor.org/info/rfc9053>.
+
+   [RFC9106]  Biryukov, A., Dinu, D., Khovratovich, D., and S.
+              Josefsson, "Argon2 Memory-Hard Function for Password
+              Hashing and Proof-of-Work Applications", RFC 9106,
+              DOI 10.17487/RFC9106, September 2021,
+              <https://www.rfc-editor.org/info/rfc9106>.
+
+18.2.  Informative References
+
+   [GHSA]     Ferro, A., "Forgeable Memory Provenance in ApertoMemory
+              format_version 1 (GHSA-jwrj-j847-ph54)", 2026,
+              <https://github.com/apertomemory/apertomemory/security/
+              advisories/GHSA-jwrj-j847-ph54>.
+
+   [RFC6838]  Freed, N., Klensin, J., and T. Hansen, "Media Type
+              Specifications and Registration Procedures", BCP 13,
+              RFC 6838, DOI 10.17487/RFC6838, January 2013,
+              <https://www.rfc-editor.org/info/rfc6838>.
+
+   [RFC7942]  Sheffer, Y. and A. Farrel, "Improving Awareness of Running
+              Code: The Implementation Status Section", BCP 205,
+              RFC 7942, DOI 10.17487/RFC7942, July 2016,
+              <https://www.rfc-editor.org/info/rfc7942>.
+
+   [VECTORS]  Ferro, A., "ApertoMemory format_version 2 Test Vectors",
+              2026,
+              <https://github.com/apertomemory/apertomemory/tree/main/
+              test-vectors/v2>.
+
+Appendix A.  Test Vectors
+
+   The normative conformance artefact for format_version 2 is the
+   machine-readable vector set [VECTORS], generated by the reference
+   implementation.  An implementation is conformant if it reproduces the
+   byte strings of the positive vectors AND refuses every case marked as
+   a refusal.  Six of the fourteen vectors are refusal cases (marked *
+   below).
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027               [Page 24]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   +===============================+==================================+
+   | Vector                        | Exercises                        |
+   +===============================+==================================+
+   | 001 key-hierarchy             | Argon2id, HKDF, Ed25519 and      |
+   |                               | X25519 derivation; author_key_id |
+   |                               | computation.                     |
+   +-------------------------------+----------------------------------+
+   | 002 kek-wrap                  | ECDH-ES(X25519) + HKDF + AES-KW  |
+   |                               | scope-key wrapping.              |
+   +-------------------------------+----------------------------------+
+   | 003 sealed-object-v2          | Full format_version 2 object     |
+   |                               | with envelope-aad on both COSE   |
+   |                               | layers.                          |
+   +-------------------------------+----------------------------------+
+   | 004 forged-authorship *       | Signed with one key while        |
+   |                               | declaring another's              |
+   |                               | author_key_id; MUST be refused   |
+   |                               | under every key (Section 5.2).   |
+   +-------------------------------+----------------------------------+
+   | 005 rewritten-envelope *      | id and scope_id rewritten by a   |
+   |                               | storage server; decryption MUST  |
+   |                               | fail (Section 5.1).              |
+   +-------------------------------+----------------------------------+
+   | 006 version-downgrade *       | format_version forced from 2 to  |
+   |                               | 1 to strip the bindings; MUST be |
+   |                               | detected.                        |
+   +-------------------------------+----------------------------------+
+   | 007 custody-attested          | Migrated third-party memory;     |
+   |                               | opens as trust "trusted", never  |
+   |                               | "self"; proven author reported   |
+   |                               | (Section 7).                     |
+   +-------------------------------+----------------------------------+
+   | 008 custody-unproven          | Quarantined object; opens as     |
+   |                               | "unverified" with no author;     |
+   |                               | unproven claim exposed           |
+   |                               | separately.                      |
+   +-------------------------------+----------------------------------+
+   | 009 legacy-v1 *               | format_version 1 object; MUST    |
+   |                               | NOT be reported as verified;     |
+   |                               | opt-in read as "unverified"      |
+   |                               | (Section 12).                    |
+   +-------------------------------+----------------------------------+
+   | 010 inconsistent-kid *        | Protected-header kid contradicts |
+   |                               | payload author_key_id; self-     |
+   |                               | inconsistent object MUST be      |
+   |                               | refused.                         |
+   +-------------------------------+----------------------------------+
+   | 011 custody-from-non-owner *  | Custody record signed by an      |
+
+
+
+Ferro                    Expires 23 January 2027               [Page 25]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   |                               | accepted third party; MUST NOT   |
+   |                               | be honoured; opens as            |
+   |                               | "unverified" with no author.     |
+   +-------------------------------+----------------------------------+
+   | 012 custody-naming-           | Attestation names a key outside  |
+   | unaccepted-key                | the Keyring; authorship          |
+   |                               | "unknown", no author reported.   |
+   +-------------------------------+----------------------------------+
+   | 013 out-of-range-confidence   | Authentic object with confidence |
+   |                               | 42.0; opens, but the value is    |
+   |                               | reported as absent and flagged   |
+   |                               | (Section 8.3).                   |
+   +-------------------------------+----------------------------------+
+   | 014 empty-custody-map         | Empty custody sub-map; degrades  |
+   |                               | to "unverified" without raising; |
+   |                               | container reading continues      |
+   |                               | (Section 2).                     |
+   +-------------------------------+----------------------------------+
+
+                   Table 3: format_version 2 Vector Set
+
+   Test vectors 001 and 002 of the previous revisions remain valid for
+   the key hierarchy, which is unchanged; their inlined values appear in
+   draft-ferro-apertomemory-01.
+
+Acknowledgments
+
+   The memory-type taxonomy (episodic, semantic, procedural) follows
+   established cognitive-science terminology also adopted by other AI
+   memory efforts.
+
+   The author thanks Valentina Tognizioli, not only for what she did,
+   but for who she is.  Watching how she used and shaped AI agents in
+   her everyday work sparked the idea for this format.  But her real
+   contribution is harder to cite: a way of seeing things differently,
+   of noticing what matters, of never giving up.  It changed how the
+   author approaches his own work.  Every page of this document carries
+   a trace of her.  Without her, none of this would exist.
+
+Changes from draft-ferro-apertomemory-01
+
+   *  Specified format_version 2, closing the forgeable-provenance
+      defect of format_version 1 (GHSA-jwrj-j847-ph54): envelope binding
+      and author binding via COSE external_aad, with a kid consistency
+      rule.
+   *  Trust is now derived from which key verified the signature, at
+      read time, fail-closed; the payload trust-level field is
+      informational only.
+
+
+
+Ferro                    Expires 23 January 2027               [Page 26]
+
+Internet-Draft                ApertoMemory                     July 2026
+
+
+   *  Added Custody Records (payload key 20) for re-sealed objects, with
+      the resolution table and the custodian-only attestation rule.
+   *  Added the Conversion Paths Between Trust Levels section: migration
+      semantics (migrate / attribute / refuse, with quarantine),
+      hardened import, and the AI-boundary rules.
+   *  Added a Conformance section separating Producer and Consumer
+      obligations; documented reserved fields explicitly.
+   *  Replaced the inline test vectors with the machine-readable
+      format_version 2 vector set (fourteen vectors, six refusal cases)
+      as the normative conformance artefact.
+   *  Container: documented known_keys in vault-public and the two
+      container-reading rules (per-object failure isolation; accepted
+      keys travel with the container).
+   *  Security Considerations: added Offline Verification Oracle and
+      Residual and Accepted Risks; updated the threat model for tamper
+      detection.
+   *  Implementations of -00 and -01 do NOT remain conforming.  This is
+      a deliberate breaking change on a security boundary.
+
+Author's Address
+
+   Andrea Ferro
+   Italy
+   Email: irn@irn3.com
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Ferro                    Expires 23 January 2027               [Page 27]
