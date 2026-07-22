@@ -6,13 +6,21 @@ carry that memory to another machine.
 
 ## 1. Install and create your vault
 
+Requires **Python 3.10+**. `amem` is a command-line tool, so the
+recommended install is [pipx](https://pipx.pypa.io/) - isolated, and on
+your PATH:
+
 ```bash
-pip install apertomemory
+pipx install apertomemory
 
 export AMEM_PASSPHRASE="choose-a-strong-passphrase"
 amem --vault ~/.amem init
 amem --vault ~/.amem scope add default
 ```
+
+On macOS with Homebrew (and other PEP 668 environments) a bare
+`pip install` into the system interpreter is refused; use pipx as above,
+or pip inside a virtualenv.
 
 Your vault now exists at `~/.amem`. The passphrase is the root of all
 your keys - there is no recovery if you lose it, because nobody else
@@ -82,9 +90,46 @@ keys like all the others. You can verify it yourself: `amem list` shows
 one more object.
 
 The tools the adapter exposes: `amem_remember`, `amem_recall`,
-`amem_export`, `amem_list_scopes`.
+`amem_export`, `amem_import`, `amem_status`.
 
-## 5. Take it with you
+`amem_recall` reports each memory's **trust** level, and objects it
+cannot authenticate are excluded and listed rather than returned. That
+distinction matters: see below.
+
+## 5. Whose memory is it?
+
+Every memory carries a trust level, and it is *derived* from which key
+verified its signature - never from anything the object declares about
+itself:
+
+| trust | meaning |
+|---|---|
+| `self` | you wrote it |
+| `trusted` | written by a third-party key you accepted with `amem trust` |
+| `unverified` | authorship could not be proven - treat as untrusted data |
+
+This is the defence against persistent prompt injection: a memory that
+arrives from somewhere else can never claim to be yours, so an assistant
+can tell your own instructions apart from someone else's text.
+
+Objects that cannot be authenticated at all are refused by default.
+Reading them takes an explicit opt-in and they come back as
+`unverified`.
+
+### Upgrading from 0.1.x
+
+Objects written before `format_version` 2 carry no such binding and open
+as `unverified` until re-sealed:
+
+```bash
+amem --vault ~/.amem migrate
+```
+
+Migration is a transfer of trust, not a format conversion: it re-seals
+only what it can vouch for and reports the rest. See
+[CHANGELOG.md](CHANGELOG.md) for the full rules.
+
+## 6. Take it with you
 
 ```bash
 amem --vault ~/.amem export my-memory.amem
@@ -100,12 +145,16 @@ node --input-type=module -e "
 import { readAmem } from 'apertomemory';
 import { readFileSync } from 'node:fs';
 const vault = readAmem(new Uint8Array(readFileSync('my-memory.amem')), process.env.AMEM_PASSPHRASE);
-for (const o of vault.objects) console.log('-', o.content, '| signature verified:', o.signatureVerified);
+for (const o of vault.objects) console.log('-', o.content, '| trust:', o.trust);
+if (vault.failed.length) console.log('excluded:', vault.failed);
 "
 ```
 
-Every memory comes back, every signature checked. Same file, different
-vendors - that's the format working as specified.
+Every memory comes back, and each one resolves to the same trust level
+the Python implementation reports for it. Same file, two codebases in
+two languages, written against the same
+[test vectors](https://github.com/apertomemory/apertomemory/tree/main/test-vectors/v2) -
+that's the format working as specified.
 
 To import into a fresh Python vault instead:
 
@@ -121,6 +170,12 @@ amem --vault ~/new-vault import my-memory.amem
 - **"wrong passphrase" on import**: the passphrase must be identical to
   the one used at `init` - it derives your keys, so a different
   passphrase means different keys.
+- **`error: externally-managed-environment` on install**: that is PEP 668
+  refusing to install into a system Python. Use `pipx install apertomemory`,
+  or a virtualenv.
+- **A memory shows up as `unverified`**: it was written before
+  `format_version` 2, or its authorship could not be proven. Run
+  `amem migrate`; if it persists, that object did not come from you.
 - **Slow first operation (~1-2s)**: that's Argon2id doing its job
   against brute force. It's a feature.
 
