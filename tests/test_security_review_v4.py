@@ -148,11 +148,15 @@ def test_OK_forged_custody4_does_not_elevate():
 
 
 # ==========================================================================
-# OK4 — custody[4] = OWNER: un terzo fidato firma e mette custody[4]=owner.
-#   La firma verifica (chiave fidata), quindi e' "trusted"; NON deve diventare
-#   "self" solo perche' custody[4] nomina il proprietario.
+# OK4 — custody[4] = OWNER firmato da un TERZO (0.2.1, vettore 011): un amico
+#   fidato firma e mette custody[4]=owner. Prima della 0.2.1 un custody record
+#   veniva onorato indipendentemente da CHI lo firmava, quindi questo oggetto
+#   diventava "trusted": un terzo poteva far attestare al proprietario contenuto
+#   che il proprietario non ha mai avallato. La regola nuova onora la custodia
+#   solo se il firmatario e' il proprietario del vault; qui il custodian e'
+#   l'amico -> "unverified". A maggior ragione mai "self".
 # ==========================================================================
-def test_OK_custody4_naming_owner_does_not_yield_self():
+def test_OK_custody4_naming_owner_is_unverified_when_signed_by_third_party():
     d = tempfile.mkdtemp()
     try:
         v = Vault.init(f"{d}/v", "pw"); v.add_scope("default", "pw")
@@ -170,6 +174,9 @@ def test_OK_custody4_naming_owner_does_not_yield_self():
         (v.obj_dir / f"{oid.hex()}.dek").write_bytes(K.wrap_dek(dek, kek))
 
         out = v.open_object(oid.hex(), "pw")
+        # custody firmato da un terzo, non dal proprietario -> non onorato.
+        assert out["trust"] == "unverified", (
+            f"custody firmato da terzo onorato: trust={out['trust']}")
         assert out["trust"] != "self", f"custody[4]=owner ha elevato a self: {out['trust']}"
     finally:
         shutil.rmtree(d)
@@ -232,12 +239,16 @@ def test_OK_key_substitution_is_rejected():
 
 
 # ==========================================================================
-# OK7 — RE-EVALUATION: un firmatario REVOCATO non e' resuscitato da custody[4].
-#   Amico fidato firma un oggetto v2 con custody[4]=owner. Dopo la revoca
-#   dell'amico, l'oggetto non deve piu' verificare (il signer non e' un
-#   candidato accettato), anche se custody[4] nomina una chiave ancora accettata.
+# OK7 — RE-EVALUATION (0.2.1, vettore 011): un custody record vale solo se e'
+#   firmato dal PROPRIETARIO del vault. Un amico fidato firma un oggetto v2 con
+#   custody[4]=owner: la firma verifica (chiave nel keyring) ma il custodian NON
+#   e' il proprietario, quindi l'attestazione non viene onorata e il trust e'
+#   "unverified", non "trusted". Prima della 0.2.1 un custody record veniva
+#   onorato da chiunque: questo test certificava quel difetto (un terzo nel tuo
+#   keyring poteva attribuirti contenuto arbitrario). Dopo la revoca dell'amico
+#   la firma non verifica piu' con nessun candidato accettato -> fail-closed.
 # ==========================================================================
-def test_OK_revoked_signer_not_resurrected_by_custody4():
+def test_OK_custody_from_nonowner_signer_is_not_honoured():
     d = tempfile.mkdtemp()
     try:
         v = Vault.init(f"{d}/v", "pw"); v.add_scope("default", "pw")
@@ -251,7 +262,8 @@ def test_OK_revoked_signer_not_resurrected_by_custody4():
         oid, sealed = v2_raw(signer=friend, dek=dek, scope_id=sid, payload_map=pm)
         (v.obj_dir / f"{oid.hex()}.bin").write_bytes(sealed)
         (v.obj_dir / f"{oid.hex()}.dek").write_bytes(K.wrap_dek(dek, kek))
-        assert v.open_object(oid.hex(), "pw")["trust"] == "trusted"
+        # custody firmato da un terzo (non dal proprietario) -> non onorato.
+        assert v.open_object(oid.hex(), "pw")["trust"] == "unverified"
 
         meta = v._meta(); meta["known_keys"] = {}; v._write_meta(meta)   # revoca friend
         with pytest.raises(SignatureError):

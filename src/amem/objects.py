@@ -175,6 +175,14 @@ def open_sealed(sealed_cbor: bytes, dek: bytes, *,
     verified_pub = None
     derived_trust = "unverified"
     if ver >= 2:
+        # The protected header is signed, so a KID that contradicts the payload
+        # author is a self-inconsistent object: two consumers reading different
+        # fields would disagree about who wrote it.
+        hdr_kid = inner.phdr.get(KID)
+        if hdr_kid is not None and hdr_kid != claimed_kid:
+            raise SignatureError(
+                "inconsistent object: COSE header kid does not match the "
+                "payload author_key_id")
         for pub, level in candidates:
             if key_id(pub) != claimed_kid:
                 continue                      # author binding: kid must match
@@ -207,7 +215,16 @@ def open_sealed(sealed_cbor: bytes, dek: bytes, *,
         accepted = set(known_keys or {})
         if owner_sign_pub is not None:
             accepted.add(key_id(owner_sign_pub))
-        derived_trust = "trusted" if (proven and proven in accepted) else "unverified"
+        # A custody record is an attestation by the CUSTODIAN. Only the vault
+        # owner can make it: otherwise a third party in your keyring could
+        # attribute content to you, or to anyone else, simply by writing the
+        # record itself.
+        by_owner = (owner_sign_pub is not None and verified_pub == owner_sign_pub)
+        honoured = bool(by_owner and proven and proven in accepted)
+        derived_trust = "trusted" if honoured else "unverified"
+        custody = dict(custody)
+        if not honoured:
+            custody.pop(4, None)      # do not report an attestation we reject
 
     # ---- decode (preserving unknown fields) ---------------------------
     out = {

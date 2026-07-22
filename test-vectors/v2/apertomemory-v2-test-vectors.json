@@ -1,7 +1,7 @@
 {
   "format_version": 2,
   "generated_by": "apertomemory 0.2.0 (Python reference)",
-  "note": "These vectors are the normative artefact. Implementations are conformant if they reproduce the byte strings and enforce every MUST-REJECT case.",
+  "note": "These vectors are the normative artefact. Implementations are conformant if they reproduce the byte strings and enforce every MUST-REJECT case. Vectors 010-012 cover cases found by adversarial probing after the first release.",
   "vectors": {
     "001-key-hierarchy": {
       "description": "Argon2id(m=64MiB,t=3,p=4) -> HKDF-SHA256 -> Ed25519 + X25519. author_key_id = sha256(sign_pub)[:8].",
@@ -132,6 +132,73 @@
       "expect": {
         "result": "reject unless allow_unverified",
         "trust_when_allowed": "unverified"
+      }
+    },
+    "010-inconsistent-kid-MUST-REJECT": {
+      "description": "COSE protected header kid contradicts the payload author_key_id. Both are signed, so the object is self-inconsistent: two consumers reading different fields would disagree about authorship. MUST be refused.",
+      "input": {
+        "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003020458b4d08343a10103a1054c000102030405060708090a0b589d18fc7823aaf17865b5063e6f423695beca81b8da7bc52866102a67534c2419d561c28a351646d0591f031e73abf51cc2399a21056118d473aa175b6fc939a9a9c4d0d0b4a6d256440d3792d40e902f0d1add008279fcc5e309a88cd2715bfcd7b29b1fde3b8a646936d3f9e5a1082b74deeb86f4aaa1565316836d1a0d33d29f7534a384eb677dda89cae4970adbae09bc2533500048926693bb758b46",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "owner_sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19"
+      },
+      "expect": {
+        "result": "reject",
+        "reason": "header kid != payload author_key_id"
+      }
+    },
+    "011-custody-from-non-owner-MUST-NOT-BE-HONOURED": {
+      "description": "A third party in the keyring signs an object carrying a custody record that attributes authorship to the vault owner. A custody record is an attestation BY THE CUSTODIAN: only the vault owner can make one. Honouring it would let anyone in your keyring put words in your mouth. MUST open as unverified with no author.",
+      "input": {
+        "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003020458d2d08343a10103a1054c000102030405060708090a0b58bb18fc7823aaf17865b5063e6f423695beca81d6db7bc52866102a67534c2419d561c28a351646d0591f031e73abf51cc2399a21056118d473aaa4c98e9eea80ac28d0d0b4a6d256440d379298ea6fe4518e99277445d5f22095660be4f7e97849fe8c9602321f81e6d6da48ed307635b6bb662f9678086b8f271fed3175ce1b4ff068ae82c2c7e7fa90f824c6057500517f5142f0587144042a30cb6bb61c847d9b174af246f69c09333eb13c359667cc3816a951ba703867020b71",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "owner_sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19",
+        "known_keys": {
+          "d05309cbd3b55f3b": "31f646bd8dc5aea4fbc52456b5369f86bf58165b6f701196331efc96a415725a"
+        }
+      },
+      "expect": {
+        "trust": "unverified",
+        "authorship": "unknown",
+        "author_key_id": null
+      }
+    },
+    "012-custody-naming-an-unaccepted-key": {
+      "description": "Custody names a proven author that is not in the keyring. The attestation is not accepted, so no author may be reported: authorship is unknown and author_key_id null, not the unaccepted key.",
+      "input": {
+        "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003020458d2d08343a10103a1054c000102030405060708090a0b58bb18fc7823aaf178650694df38911f9052ca81d6db7bc52866102a67534c2419d561c28a351646d0591f031e73abf51cc2399a21056118d473aa175b6fc939a9a9c4d0d0b4a6d256440d379298ea6fe4518e2ab5951206db2579660be4f7e97849fe31fa5441c1b002eeda48194430044012757ba7d1cf4eddcd930fddf812172c0970e0f8b087dd187cde1624175e76cd17cb5d090609c5e34e0b1b222600b5e4e9e5a03c697cf4665d4fbe20490d031d747e0c1ae7ea6d733556ab",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "owner_sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19"
+      },
+      "expect": {
+        "trust": "unverified",
+        "authorship": "unknown",
+        "author_key_id": null
+      }
+    },
+    "013-out-of-range-confidence": {
+      "description": "A non-conformant producer writes confidence outside [0.0,1.0]. The object is authentic, so it is not refused - but the value MUST NOT be propagated: consumers rank memories by confidence, and propagating 42.0 lets a bad producer dominate every ranking. Report confidence as null and flag the schema violation.",
+      "input": {
+        "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003020458aed08343a10103a1054c000102030405060708090a0b589718fc7823aaf178650694df38911f9052ca81b2da7bc52866102a67534c241bbbcd0ae4f8b6eb7038d02f117eafbf41c168f4004990de7a717e2e4d82543e94f209bd9f52878b0c9e9d9a340b2818fc88754e6a70a24ac233b7142aa9282a06ea705256afd5b54988a51d1623d7439ec7e313206a13a659db6e3d10681cde87f24ad306ca2a820529be14581430faa38bf144ef3b39ef35",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "owner_sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19"
+      },
+      "expect": {
+        "trust": "self",
+        "confidence": null,
+        "schema_violation": "confidence out of range"
+      }
+    },
+    "014-empty-custody-map": {
+      "description": "A custody record present but empty. It proves nothing, so it degrades trust exactly like a custody record without field 4. Implementations MUST NOT crash on it: a malformed sub-map that throws is a denial of service on the whole container.",
+      "input": {
+        "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003020458b6d08343a10103a1054c000102030405060708090a0b589f18fc7823aaf178650694df38911f9052ca81badb7bc52866102a67534c2419d561c28a351646d0591f031e73abf51cc2399a21056118d473aa175b6fc939a9a9c4d0d0b4a6d256440d379298ee36a5b5e5bdc22cb17fb691d4a1a01e4d72f72560f79a310c111d646dfa7fd95da19ebaa070d392256e0c8aa3715e08468e068960eaf51dfa9b5f8c08adc100a9f2d45601119cb9bf22a90dca1ceaf96201cf",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "owner_sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19"
+      },
+      "expect": {
+        "trust": "unverified",
+        "authorship": "unknown",
+        "author_key_id": null
       }
     }
   }
