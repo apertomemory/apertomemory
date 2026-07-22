@@ -2,8 +2,7 @@
 
 Memoria AI portabile, cifrata lato client, di proprietà dell'utente.
 La documentazione principale del progetto è in inglese: vedi
-[README.md](README.md). Le note di progettazione in italiano sono in
-`docs/`.
+[README.md](README.md).
 
 Installazione (richiede Python 3.10+): `pipx install apertomemory` —
 comando `amem`, formato `.amem`. Su macOS con Homebrew un `pip install`
