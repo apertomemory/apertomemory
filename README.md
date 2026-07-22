@@ -64,9 +64,9 @@ amem --vault other-device import my-memory.amem
 
 ### Upgrading from 0.1.x
 
-0.2.0 introduces `format_version 2`, which binds each signature to its author
-and to the object envelope. Existing 0.1.x objects carry no such binding and
-open as `unverified` until re-sealed:
+`format_version 2` binds each signature to its author and to the object
+envelope. Existing 0.1.x objects carry no such binding and open as
+`unverified` until re-sealed:
 
 ```bash
 amem --vault ~/.amem migrate              # re-seal your own memories as v2
@@ -88,10 +88,17 @@ Run the tests: `python3 tests/test_roundtrip.py`
 
 ## Security
 
-This project has not had an independent external audit. Its
-0.2.0 release was reworked over four review rounds, and every
-defect found in them has a regression test under `tests/`;
-that is evidence of scrutiny, not a substitute for an audit.
+This project has not had an independent external audit.
+
+The 0.2.x releases were reworked over repeated adversarial review, and
+every defect found has a regression test under `tests/`. Some were found
+by reviewing this implementation; others only surfaced when the
+TypeScript implementation, written against the test vectors without
+reading this code, disagreed with it. That is evidence of scrutiny, not
+a substitute for an audit.
+
+All 0.1.x releases are yanked, as is 0.2.0. Use 0.2.1 or later.
+
 Cryptographic review of the specification is explicitly invited.
 
 If you find a vulnerability, please report it privately: see
