@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/apertomemory/apertomemory/actions/workflows/ci.yml/badge.svg)](https://github.com/apertomemory/apertomemory/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/apertomemory)](https://pypi.org/project/apertomemory/)
-[![IETF I-D](https://img.shields.io/badge/IETF-draft--ferro--apertomemory--00-blue)](https://datatracker.ietf.org/doc/draft-ferro-apertomemory/)
+[![IETF I-D](https://img.shields.io/badge/IETF-draft--ferro--apertomemory--02-blue)](https://datatracker.ietf.org/doc/draft-ferro-apertomemory/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **Portable, client-side-encrypted, user-owned AI memory.**
