@@ -12,15 +12,35 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
-        run: pip install -e .
-      - name: Run tests
-        run: python tests/test_roundtrip.py
-      - name: Verify test vectors
-        run: python -c "import json; [json.load(open(f'test-vectors/amem-testvector-00{i}.json')) for i in (1,2)]; print('test vectors OK')"
+        run: pip install -e . && pip install pytest
+      - name: Run the full test suite
+        run: python -m pytest tests/ -q
+
+  vectors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e . && pip install pycddl
+      - name: Test vectors must be reproducible
+        # A normative artefact that cannot be regenerated is not normative.
+        run: |
+          python3 test-vectors/v2/generate.py > /tmp/regenerated.json
+          diff -u test-vectors/v2/apertomemory-v2-test-vectors.json /tmp/regenerated.json
+      - name: CDDL schema must parse
+        run: |
+          python3 -c "
+          import pycddl, pathlib
+          pycddl.Schema(pathlib.Path('spec/amem-schema.cddl').read_text())
+          print('schema parses')
+          "

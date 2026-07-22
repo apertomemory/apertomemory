@@ -1,0 +1,9 @@
+include LICENSE
+include README.md
+include README.it.md
+include CHANGELOG.md
+include SECURITY.md
+include CONTRIBUTING.md
+include GETTING-STARTED.md
+recursive-include spec *.cddl
+recursive-include test-vectors *.json *.py *.md

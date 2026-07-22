@@ -1,7 +1,8 @@
 {
   "format_version": 2,
   "generated_by": "apertomemory 0.2.1 (Python reference)",
-  "note": "These vectors are the normative artefact. Implementations are conformant if they reproduce the byte strings and enforce every MUST-REJECT case. Vectors 010-012 cover cases found by adversarial probing after the first release.",
+  "vector_set": "001-014",
+  "note": "These vectors are the normative artefact. An implementation is conformant if it reproduces the byte strings AND refuses every MUST-REJECT case. Reproducing bytes alone is not sufficient: the first release of this format did exactly that and was vulnerable.",
   "vectors": {
     "001-key-hierarchy": {
       "description": "Argon2id(m=64MiB,t=3,p=4) -> HKDF-SHA256 -> Ed25519 + X25519. author_key_id = sha256(sign_pub)[:8].",
@@ -189,7 +190,7 @@
       }
     },
     "014-empty-custody-map": {
-      "description": "A custody record present but empty. It proves nothing, so it degrades trust exactly like a custody record without field 4. Implementations MUST NOT crash on it: a malformed sub-map that throws is a denial of service on the whole container.",
+      "description": "A custody record present but empty. It proves nothing, so it degrades trust exactly like a custody record without field 4. Implementations MUST NOT crash on it: a malformed sub-map that throws is a denial of service on the whole container. Note that this payload deliberately does NOT conform to the CDDL custody rule - that is the point.",
       "input": {
         "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003020458b6d08343a10103a1054c000102030405060708090a0b589f18fc7823aaf178650694df38911f9052ca81badb7bc52866102a67534c2419d561c28a351646d0591f031e73abf51cc2399a21056118d473aa175b6fc939a9a9c4d0d0b4a6d256440d379298ee36a5b5e5bdc22cb17fb691d4a1a01e4d72f72560f79a310c111d646dfa7fd95da19ebaa070d392256e0c8aa3715e08468e068960eaf51dfa9b5f8c08adc100a9f2d45601119cb9bf22a90dca1ceaf96201cf",
         "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
@@ -201,6 +202,5 @@
         "author_key_id": null
       }
     }
-  },
-  "vector_set": "001-014"
+  }
 }
