@@ -40,7 +40,14 @@ def main(argv=None) -> int:
     se = sub.add_parser("export", help="export everything to an .amem file")
     se.add_argument("out")
 
-    si = sub.add_parser("import", help="import an .amem file into a new vault")
+    sm = sub.add_parser("migrate", help="re-seal format_version 1 objects as v2")
+    sm.add_argument("--quarantine", action="store_true",
+                    help="also migrate objects whose authorship cannot be "
+                         "proven, marking them permanently untrusted")
+    st = sub.add_parser("trust", help="accept a third-party author public key (hex)")
+    st.add_argument("sign_pub_hex")
+
+    si = sub.add_parser("import", help="import an .amem file (merges into the vault; refuses other identities)")
     si.add_argument("file")
 
     args = p.parse_args(argv)
@@ -86,9 +93,24 @@ def main(argv=None) -> int:
         print(f"{n} objects exported to {args.out}")
         return 0
 
+    if args.cmd == "migrate":
+        r = v.migrate(_pw(args), quarantine=args.quarantine)
+        print(f"{r['migrated']} migrated, {r['quarantined']} quarantined "
+              f"(untrusted), {r['already_v2']} already v2")
+        for oid, why in r["refused"]:
+            print(f"  REFUSED {oid}: {why}")
+        for oid, err in r["failed"]:
+            print(f"  FAILED  {oid}: {err}")
+        return 0
+
+    if args.cmd == "trust":
+        kid = v.trust_key(bytes.fromhex(args.sign_pub_hex), _pw(args))
+        print(f"author key {kid} is now trusted")
+        return 0
+
     if args.cmd == "import":
-        Vault.import_file(args.file, args.vault, _pw(args))
-        print(f"imported into {args.vault}")
+        n = Vault(args.vault).import_file_into(args.file, _pw(args))
+        print(f"{n} objects imported into {args.vault}")
         return 0
 
     return 1

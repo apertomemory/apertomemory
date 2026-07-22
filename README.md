@@ -28,7 +28,21 @@ Website: https://apertomemory.org
 
 ## Install
 
+Requires **Python ≥ 3.10**.
+
+`amem` is a command-line tool, so the recommended install is [pipx](https://pipx.pypa.io/)
+(isolated, on your PATH):
+
 ```bash
+pipx install apertomemory
+```
+
+On macOS/Homebrew and other PEP 668 "externally-managed" environments a bare
+`pip install` into the system interpreter will be refused; use pipx, or pip
+inside a virtualenv:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
 pip install apertomemory
 ```
 
@@ -48,6 +62,21 @@ amem --vault ~/.amem export my-memory.amem     # take it anywhere
 amem --vault other-device import my-memory.amem
 ```
 
+### Upgrading from 0.1.x
+
+0.2.0 introduces `format_version 2`, which binds each signature to its author
+and to the object envelope. Existing 0.1.x objects carry no such binding and
+open as `unverified` until re-sealed:
+
+```bash
+amem --vault ~/.amem migrate              # re-seal your own memories as v2
+amem --vault ~/.amem migrate --quarantine # also carry over ones it cannot vouch for
+```
+
+Migration is a **transfer of trust, not a format conversion** — it deliberately
+refuses to re-sign anything whose authorship it cannot prove. See
+[CHANGELOG.md](CHANGELOG.md) for the full migration semantics and what is still open.
+
 ## Cryptography
 
 Argon2id (m=64 MiB, t=3, p=4) -> HKDF-SHA256 -> Ed25519 (signing,
@@ -59,11 +88,14 @@ Run the tests: `python3 tests/test_roundtrip.py`
 
 ## Security
 
-The design uses standard, well-reviewed primitives, but this project
-has **not yet had an independent security audit**. Until it does,
-treat it accordingly — and if you find a vulnerability, please report
-it privately: see [SECURITY.md](SECURITY.md). Cryptographic review of
-the specification is explicitly invited.
+This project has not had an independent external audit. Its
+0.2.0 release was reworked over four review rounds, and every
+defect found in them has a regression test under `tests/`;
+that is evidence of scrutiny, not a substitute for an audit.
+Cryptographic review of the specification is explicitly invited.
+
+If you find a vulnerability, please report it privately: see
+[SECURITY.md](SECURITY.md).
 
 ## MCP adapter (Claude Desktop / Claude Code)
 
