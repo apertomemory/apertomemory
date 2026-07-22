@@ -1,0 +1,138 @@
+{
+  "format_version": 2,
+  "generated_by": "apertomemory 0.2.0 (Python reference)",
+  "note": "These vectors are the normative artefact. Implementations are conformant if they reproduce the byte strings and enforce every MUST-REJECT case.",
+  "vectors": {
+    "001-key-hierarchy": {
+      "description": "Argon2id(m=64MiB,t=3,p=4) -> HKDF-SHA256 -> Ed25519 + X25519. author_key_id = sha256(sign_pub)[:8].",
+      "input": {
+        "passphrase": "correct horse battery staple",
+        "salt": "00112233445566778899aabbccddeeff"
+      },
+      "expect": {
+        "master": "aeb08a81bdb9da07c32f8f9d2c87cfba3313c0fdc7468179e494c56680f0ae8d",
+        "sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19",
+        "ka_pub": "12218cbdbaefba349f7ea6926fb4a9226fc77762ff79a808f3d8ce0a53e68c64",
+        "author_key_id": "63c1e89c009c5ad7"
+      }
+    },
+    "002-kek-wrap": {
+      "description": "ECDH-ES(X25519) + HKDF(info='apertomemory/v1/kek-wrap'||scope_id) + AES-KW.",
+      "input": {
+        "kek": "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+        "ka_pub": "12218cbdbaefba349f7ea6926fb4a9226fc77762ff79a808f3d8ce0a53e68c64",
+        "scope_id": "0102030405060708090a0b0c0d0e0f10",
+        "ephemeral_seed": "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"
+      },
+      "expect": {
+        "kek_wrapped": "e4ba9ca2fdbc66433741aba248a99d69f02e2debd0bb29853792412d47cdb5e1d2cd79f6dda42a1f",
+        "ephemeral_pub": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"
+      }
+    },
+    "003-sealed-object-v2": {
+      "description": "format_version 2. external_aad = canonical CBOR [version, id, scope_id], applied to BOTH COSE_Sign1 and COSE_Encrypt0.",
+      "input": {
+        "identity_salt": "00112233445566778899aabbccddeeff",
+        "passphrase": "correct horse battery staple",
+        "scope_id": "0102030405060708090a0b0c0d0e0f10",
+        "object_id": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "nonce": "000102030405060708090a0b",
+        "created": 1750000000,
+        "content": "prefers formal B2B emails",
+        "tags": [
+          "preferences"
+        ],
+        "confidence": 0.9
+      },
+      "expect": {
+        "external_aad": "830250a0a1a2a3a4a5a6a7a8a9aaabacadaeaf500102030405060708090a0b0c0d0e0f10",
+        "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003020458d7d08343a10103a1054c000102030405060708090a0b58c018fc7823aaf178650694df38911f9052ca81dbdb7bc5287b79287a544f429099ad68298bb7eb717dff303032a3fd108636854bd16eda2abd2eb8564a519b349f72b8b4de2ab020456ce63cbe4c2686922ed574e1d4d1427ea8e47afc1ea0de28c48a3989cb6c1a1d00986005a979c0ef06e6f6abb72f0340f8aa493403ec9db990207a957ab5e1029b6e2b2d2008f55f6c390020c568cf9f4b650cead5eba20f504308d81e98b41136e70461ef627723743acdb33512f3a8a731ea9b74dd31a2",
+        "trust": "self",
+        "authorship": "signed",
+        "author_key_id": "63c1e89c009c5ad7",
+        "signature_verified": true
+      }
+    },
+    "004-forged-authorship-MUST-REJECT": {
+      "description": "Signed with a different key while declaring the owner's author_key_id. A conformant implementation MUST refuse it under every key.",
+      "input": {
+        "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003020458ccd08343a10103a1054c000102030405060708090a0b58b518fc7823aaf178650694df38911f9052ca81d0da7bc5287b7c316f5f465587cafd7c238fb3e5682e9d6b1c61b2e2048c2e9f274422351d4e0eb8564b99f5f8f7b1d4bdd26ab6210120ba7ba37e40d7518e2ab5951206db257960108bcdc4a225f80ed7b2ee2df573d5a00233ae37cae0b046ba64f01e6b74754634312c2bad09f2f8c5a1797d8edadf38c14d757e1a36397287303ef1edabc414cd301dbd4f9c3059c1086894822672bcd7390dad440cbfd46202ee",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "owner_sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19",
+        "signer_sign_pub": "31f646bd8dc5aea4fbc52456b5369f86bf58165b6f701196331efc96a415725a"
+      },
+      "expect": {
+        "result": "reject",
+        "reason": "author_key_id does not match the verifying key"
+      }
+    },
+    "005-rewritten-envelope-MUST-REJECT": {
+      "description": "id and scope_id rewritten by a storage server. The AEAD covers them through external_aad, so decryption MUST fail.",
+      "input": {
+        "sealed_object": "a40150b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b00250c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c003020458d7d08343a10103a1054c000102030405060708090a0b58c018fc7823aaf178650694df38911f9052ca81dbdb7bc5287b79287a544f429099ad68298bb7eb717dff303032a3fd108636854bd16eda2abd2eb8564a519b349f72b8b4de2ab020456ce63cbe4c2686922ed574e1d4d1427ea8e47afc1ea0de28c48a3989cb6c1a1d00986005a979c0ef06e6f6abb72f0340f8aa493403ec9db990207a957ab5e1029b6e2b2d2008f55f6c390020c568cf9f4b650cead5eba20f504308d81e98b41136e70461ef627723743acdb33512f3a8a731ea9b74dd31a2",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "owner_sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19"
+      },
+      "expect": {
+        "result": "reject",
+        "reason": "AEAD tag mismatch (envelope binding)"
+      }
+    },
+    "006-version-downgrade-MUST-REJECT": {
+      "description": "format_version forced from 2 to 1 to strip the bindings.",
+      "input": {
+        "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003010458d7d08343a10103a1054c000102030405060708090a0b58c018fc7823aaf178650694df38911f9052ca81dbdb7bc5287b79287a544f429099ad68298bb7eb717dff303032a3fd108636854bd16eda2abd2eb8564a519b349f72b8b4de2ab020456ce63cbe4c2686922ed574e1d4d1427ea8e47afc1ea0de28c48a3989cb6c1a1d00986005a979c0ef06e6f6abb72f0340f8aa493403ec9db990207a957ab5e1029b6e2b2d2008f55f6c390020c568cf9f4b650cead5eba20f504308d81e98b41136e70461ef627723743acdb33512f3a8a731ea9b74dd31a2",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "owner_sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19"
+      },
+      "expect": {
+        "result": "reject",
+        "reason": "version is inside external_aad"
+      }
+    },
+    "007-custody-attested": {
+      "description": "Migrated third-party memory: signed by the custodian (owner), custody field 4 names the proven author. MUST open as trust=trusted, never self, and report the proven author - not the signer - as author_key_id.",
+      "input": {
+        "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003020458ecd08343a10103a1054c000102030405060708090a0b58d518fc7823aaf178650694df38911f9052ca81f0db7bc5287b7e3e69525d07839ff966298bbfee3d3fc4221332b2f8189d3ed6384b23429f72194b764b99f5f93fded173b26bb221492efb71e02741d57df44b3c1e4feedb7f323fc6896dc2194cac87190b2e0bb9bd0080409b1bf0537cd192ea0cc4223b01c14a1bf715585cb389c0af223df0fa10c584249a8430b1afeb436cb3ce71d5d2f45018765d7ba55c88e1a0c297baf1d5851ca6fa43bcf0185f985837f77459522685d8f3f417e353637336a5dfb0c41c0837329df154dc17864b2e25cd",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "owner_sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19",
+        "known_keys": {
+          "d05309cbd3b55f3b": "31f646bd8dc5aea4fbc52456b5369f86bf58165b6f701196331efc96a415725a"
+        }
+      },
+      "expect": {
+        "trust": "trusted",
+        "authorship": "attested",
+        "author_key_id": "d05309cbd3b55f3b",
+        "signer_key_id": "63c1e89c009c5ad7"
+      }
+    },
+    "008-custody-unproven": {
+      "description": "Quarantined object: custody has no field 4. MUST open as unverified with author_key_id = null, and the unproven claim exposed separately.",
+      "input": {
+        "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003020458e8d08343a10103a1054c000102030405060708090a0b58d118fc7823aaf178650694df38911f9052ca81ecdb7bc5287b44297d505b468c9ee460239dfae77830d2700b32a9f6519a349d26452658c61e901dfdee3b3aceccff191d7fcb1f8128e1d77eed230b887ea5251d52be28757de606d064f0c5241761ea56ed0f1e07d44f63885febf899ad2c1d8206159915723a4d494fdd7d57387c9d2cc12c430807c176a92872b99b89893b8405f9cd4a8bc68de92a1d3c9c95fc433345b6e28a7d3fed057d33f2895a9ba28dd037fdc05067b2911b4103ae33d25cc52807e637bcbaecf0dfedeceac26a",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "owner_sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19"
+      },
+      "expect": {
+        "trust": "unverified",
+        "authorship": "unknown",
+        "author_key_id": null,
+        "claimed_author_key_id": "d05309cbd3b55f3b"
+      }
+    },
+    "009-legacy-v1-MUST-NOT-VERIFY": {
+      "description": "format_version 1 carries no binding. MUST NOT be reported as verified; readable only under an explicit opt-in, as trust=unverified.",
+      "input": {
+        "sealed_object": "a40150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02500102030405060708090a0b0c0d0e0f1003010458bcd08343a10103a1054c000102030405060708090a0b58a518fc7823aaf178650694df38911f9052ca81c0da7bc5286e0c3d6f504a5ec287e863298ba389e66251cebede0a5cbcebf8f7244b3c538b5c8118f3a8651707f15bb6105b9bd3d07694d3138bef6fff3b88a8f425ce13f5c29ac861662473bbae7211e8d7c1843203c309855d4fd126b2da7403b628b2384870bd43a4b2fcbf4d93a6cf70f66af428d27c36f638fb24d1971c90d01e1ccaf7b5b5d9de24bb1e8a63206ad172",
+        "dek": "2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe",
+        "owner_sign_pub": "927c69e5f6d735d057fb1f156436a0b67a2d053df693e03dbee2dff50cf42b19"
+      },
+      "expect": {
+        "result": "reject unless allow_unverified",
+        "trust_when_allowed": "unverified"
+      }
+    }
+  }
+}
