@@ -32,6 +32,15 @@ high-stakes secrets. Review of the specification
 (`draft-ferro-apertomemory`) by cryptographers and security
 researchers is explicitly invited.
 
+## Past Advisories
+
+- [GHSA-jwrj-j847-ph54](https://github.com/apertomemory/apertomemory/security/advisories/GHSA-jwrj-j847-ph54)
+  — forgeable memory provenance in `format_version` 1. Affects
+  `apertomemory` on PyPI < 0.2.0 and on npm <= 0.1.1. Fixed by
+  `format_version` 2.
+
 ## Supported Versions
 
-Only the latest released version on PyPI receives security fixes.
+Only the latest released version receives security fixes. All 0.1.x
+releases are yanked on PyPI and deprecated on npm, as is 0.2.0. Use
+0.2.1 or later on both.
