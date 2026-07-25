@@ -7,7 +7,7 @@
 
 **Portable, client-side-encrypted, user-owned AI memory.**
 
-Every AI tool remembers you differently — and only within its own walls.
+Every AI tool remembers you differently and only within its own walls.
 Switch tools and your AI forgets who you are. ApertoMemory fixes this with
 an open format: your AI's memory of you lives in a file that is **yours**,
 encrypted with **your** keys, portable across any compatible system. No
@@ -19,7 +19,7 @@ provider can read it. No vendor can hold it hostage.
   encryption; imported third-party memories are cryptographically
   distinguishable from your own (persistent-prompt-injection defence).
 - **Portable**: export your entire memory as a single `.amem` file and
-  import it anywhere — a complete vault fits in kilobytes.
+  import it anywhere a complete vault fits in kilobytes.
 - **Open**: MIT-licensed reference implementation, CDDL schema, test
   vectors, and an IETF Internet-Draft
   ([draft-ferro-apertomemory](https://datatracker.ietf.org/doc/draft-ferro-apertomemory/)).
