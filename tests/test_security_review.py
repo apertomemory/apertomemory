@@ -225,6 +225,7 @@ def test_F6_import_does_not_destroy_existing_identity():
 # ==========================================================================
 def test_F7_import_paths_are_unified():
     import inspect
+    pytest.importorskip("mcp", reason="dipendenza opzionale 'mcp' non installata")
     from amem import mcp_server
 
     mcp_src = inspect.getsource(mcp_server.amem_import)

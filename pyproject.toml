@@ -14,7 +14,7 @@ urls = {Homepage = "https://apertomemory.org", "PyPI" = "https://pypi.org/projec
 dependencies = ["cbor2>=5.5", "pycose>=1.0", "argon2-cffi>=23", "cryptography>=42"]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0"]
+mcp = ["mcp>=1.0,<2"]
 
 [project.scripts]
 amem = "amem.cli:main"
