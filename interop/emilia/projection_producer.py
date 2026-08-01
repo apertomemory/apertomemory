@@ -13,8 +13,11 @@ Built one layer at a time. Present layers:
             fragment.
   Layer 2 — fragment framing (context-frame:v0): build a fragment's exact bytes
             from a delivered object's native labels plus its body text.
+  Layer 3 — trust-snapshot serialization: build and commit the read-time
+            keyring snapshot the draft delegates to the source profile.
 """
 from __future__ import annotations
+import base64
 import hashlib
 from dataclasses import dataclass
 
@@ -148,3 +151,110 @@ def build_fragment_v0(obj: DeliveredObject) -> bytes:
     )
     text = f"{header}\n{obj.body}\n[/ApertoMemory]\n"
     return text.encode("utf-8")
+
+
+# --------------------------------------------------------------------------
+# Layer 3 — trust-snapshot serialization
+# --------------------------------------------------------------------------
+#
+# WHAT THE DRAFT ACTUALLY SAYS
+# ----------------------------
+# Only two statements bear on the trust-snapshot bytes:
+#
+#   * Terminology (Trust snapshot): "A commitment to the source-profile trust
+#     state used when the selection decision was made. For ApertoMemory this is
+#     a read-time keyring snapshot, because trust is derived rather than stored
+#     in the object."
+#
+#   * Selection Context: "trust_snapshot_digest is SHA-256 over the
+#     source-profile-defined trust snapshot."
+#
+# That is the whole specification. The draft is EXPLICIT that the snapshot is
+# "source-profile-defined" -- i.e. it deliberately delegates the structure and
+# byte layout to ApertoMemory and defines nothing itself. So every byte-level
+# decision here is a source-profile choice, and it belongs in the ApertoMemory
+# profile, not in this neutral draft:
+#
+#   * what the snapshot contains (owner key, accepted keys, anything else);
+#   * the key-id encoding (native 8-byte hex? base64url?);
+#   * the container format (JSON? CBOR? a flat concatenation?);
+#   * for JSON: key order, member names, array order, whitespace, i.e. whether
+#     it is JCS-canonicalized.
+#
+# INDEPENDENT READING taken here
+# ------------------------------
+# The one concrete anchor is "read-time keyring snapshot". ApertoMemory's
+# keyring at read time is exactly: the vault owner signing key (yields trust
+# "self") plus the set of accepted third-party author keys in `known_keys`
+# (yields "trusted"). So the snapshot commits to those two things.
+#
+# Choices I make, none of them dictated by the draft:
+#   * Represent key-ids as unpadded base64url of the native 8-byte key-id. The
+#     draft defines a b64u term and uses it for author_key_id_b64u, so reusing
+#     b64u for keyring key-ids is the most consistent record-level choice --
+#     though ApertoMemory-native key-ids are hex, so this is a re-encoding.
+#   * Container = JSON, canonicalized like the rest of the record (JCS: sorted
+#     keys, minimal separators, no whitespace), since the record already
+#     mandates JCS for signing. Member names mirror the record's vocabulary:
+#     owner_key_id_b64u and accepted_key_ids_b64u.
+#   * accepted_key_ids_b64u sorted ascending (JCS-style determinism for a set).
+#
+# This is spec section 6.1: "Trust-snapshot serialization (highest risk)... the
+# byte layout is undefined." Layer 3 is where an independent producer converges
+# with or diverges from the other implementation.
+
+
+def _hex_keyid_to_b64u(hex_key_id: str) -> str:
+    """Re-encode an ApertoMemory native 8-byte hex key-id as unpadded base64url.
+
+    ApertoMemory produces key-ids as lowercase hex (e.g. "63c1e89c009c5ad7").
+    The record's b64u term (RFC 4648 sec 5, unpadded) is reused here for the
+    keyring snapshot -- a producer choice, since the draft does not say how a
+    keyring key-id is encoded.
+    """
+    raw = bytes.fromhex(hex_key_id)
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _jcs_compact_object(members: dict[str, object]) -> bytes:
+    """Serialize a flat JSON object the way JCS (RFC 8785) would for these
+    value types: keys sorted lexicographically, no whitespace, strings and
+    arrays of strings only. This mirrors the canonicalization the record
+    already requires for signing, applied to the snapshot.
+    """
+    import json
+    return json.dumps(
+        members,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def build_trust_snapshot_v0(owner_key_id_hex: str,
+                            accepted_key_ids_hex: list[str]) -> bytes:
+    """Build the read-time keyring snapshot's exact bytes.
+
+    Input is ApertoMemory-native (hex key-ids: the owner signing key-id and the
+    accepted third-party author key-ids from the vault keyring). Output is the
+    byte string that trust_snapshot_digest commits to.
+
+    Structure (a source-profile choice, NOT specified by the draft):
+
+        {"accepted_key_ids_b64u":[<sorted b64u>...],"owner_key_id_b64u":<b64u>}
+
+    JCS-compact JSON, keys sorted, accepted array sorted ascending.
+    """
+    accepted = sorted(_hex_keyid_to_b64u(k) for k in accepted_key_ids_hex)
+    members = {
+        "owner_key_id_b64u": _hex_keyid_to_b64u(owner_key_id_hex),
+        "accepted_key_ids_b64u": accepted,
+    }
+    return _jcs_compact_object(members)
+
+
+def trust_snapshot_commitment(owner_key_id_hex: str,
+                              accepted_key_ids_hex: list[str]) -> tuple[bytes, str]:
+    """Return (snapshot_bytes, trust_snapshot_digest) for the given keyring."""
+    snapshot = build_trust_snapshot_v0(owner_key_id_hex, accepted_key_ids_hex)
+    return snapshot, sha256_commitment(snapshot)
