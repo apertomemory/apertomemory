@@ -15,6 +15,10 @@ Built one layer at a time. Present layers:
             from a delivered object's native labels plus its body text.
   Layer 3 — trust-snapshot serialization: build and commit the read-time
             keyring snapshot the draft delegates to the source profile.
+  Layer 4 — complete record assembly and signing (draft sections "Memory
+            Projection Record" and "Canonicalization and Signature"): assemble
+            every field in schema order, JCS-canonicalize the signed boundary,
+            prepend the domain string, and Ed25519-sign.
 """
 from __future__ import annotations
 import base64
@@ -258,3 +262,177 @@ def trust_snapshot_commitment(owner_key_id_hex: str,
     """Return (snapshot_bytes, trust_snapshot_digest) for the given keyring."""
     snapshot = build_trust_snapshot_v0(owner_key_id_hex, accepted_key_ids_hex)
     return snapshot, sha256_commitment(snapshot)
+
+
+# --------------------------------------------------------------------------
+# Layer 4 — complete record assembly and signing
+# --------------------------------------------------------------------------
+#
+# WHAT THE DRAFT SPECIFIES (this layer, unlike 2 and 3, is normatively pinned)
+# ---------------------------------------------------------------------------
+#   * Memory Projection Record: "MEMORY-PROJECTION-RECORD-v1 is a closed I-JSON
+#     object. ... Member order in a JSON serialization has no significance.
+#     Unknown members MUST be refused."  -> field SET is fixed (schema), order
+#     is irrelevant because JCS re-sorts.
+#   * Canonicalization and Signature: "Every member except proof is inside the
+#     signature boundary. The producer removes proof, canonicalizes the
+#     remaining object with JCS [RFC8785], prefixes the following UTF-8 domain
+#     string and one zero octet, and signs the resulting bytes with Ed25519:
+#         MEMORY-PROJECTION-RECORD-v1\0 || JCS(record without proof)
+#     proof.alg MUST equal Ed25519. signature_b64u is the unpadded base64url
+#     encoding of the 64-byte signature."
+#
+# So layer 4 is mechanical: assemble the fixed field set, JCS-canonicalize the
+# record minus proof, prepend b"MEMORY-PROJECTION-RECORD-v1\x00", Ed25519-sign,
+# attach proof. No under-specified choices at THIS layer. (The record still
+# CONTAINS the provisional layer-2/3 values, but the assembly+signing mechanics
+# themselves are fully draft-dictated.)
+
+RECORD_VERSION = "MEMORY-PROJECTION-RECORD-v1"
+SIGNING_DOMAIN = b"MEMORY-PROJECTION-RECORD-v1\x00"
+
+NONCLAIMS = {
+    "model_use": "NOT_ESTABLISHED",
+    "action_linkage": "NOT_ESTABLISHED",
+    "action_authorization": "NOT_ESTABLISHED",
+    "execution_outcome": "NOT_ESTABLISHED",
+}
+
+
+def jcs_canonicalize(value) -> bytes:
+    """RFC 8785 JCS, restricted to the value types this record uses: str, bool,
+    None, non-negative safe int, list, dict. No floats appear anywhere in a
+    MEMORY-PROJECTION-RECORD-v1, so the notoriously fiddly JCS number handling
+    reduces to plain integer formatting.
+
+    Rules applied: object keys sorted by UTF-16 code unit (ASCII keys here, so
+    ordinary codepoint sort is identical); no insignificant whitespace; strings
+    serialized as minimal JSON with the JCS/ECMAScript escape set.
+    """
+    import json
+    if isinstance(value, bool):
+        return b"true" if value else b"false"
+    if value is None:
+        return b"null"
+    if isinstance(value, int):
+        # JCS integers: plain decimal, no leading zeros, no plus sign.
+        return str(value).encode("ascii")
+    if isinstance(value, str):
+        # json.dumps with ensure_ascii=False emits the RFC 8785 string form for
+        # the characters used here (no control chars in these fields).
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if isinstance(value, list):
+        return b"[" + b",".join(jcs_canonicalize(v) for v in value) + b"]"
+    if isinstance(value, dict):
+        parts = []
+        for k in sorted(value.keys()):
+            if not isinstance(k, str):
+                raise TypeError("JCS object keys must be strings")
+            parts.append(jcs_canonicalize(k) + b":" + jcs_canonicalize(value[k]))
+        return b"{" + b",".join(parts) + b"}"
+    raise TypeError(f"value type not permitted in a projection record: {type(value)!r}")
+
+
+@dataclass(frozen=True)
+class DeliveredEntry:
+    """One fully-resolved delivered entry: native labels + the two commitments
+    (sealed_object_digest from layer-1-style hashing of the source bytes;
+    context_fragment_digest from layer 1 over the layer-2 fragment bytes)."""
+    format_version: int
+    sealed_object_digest: str
+    context_fragment_digest: str
+    derived_trust: str
+    authorship: str
+    author_key_id_b64u: str | None
+    custody_present: bool
+
+
+def assemble_record(
+    *,
+    source_profile: str,
+    projection_id: str,
+    created_at: str,
+    adapter_id: str,
+    adapter_key_id: str,
+    recall_request_digest: str,
+    selection_policy_digest: str,
+    trust_snapshot_digest: str,
+    trust_evaluated_at: str,
+    context_frame_profile: str,
+    delivered: list[DeliveredEntry],
+    projection_bytes: bytes,
+    exclusions_by_reason: dict[str, int],
+) -> dict:
+    """Assemble the complete unsigned record (every member except proof).
+
+    Field set and nesting are fixed by the schema; JCS re-sorts at signing, so
+    the dict insertion order here is only for human readability and follows the
+    draft's example order.
+    """
+    delivered_members = []
+    for i, e in enumerate(delivered):
+        delivered_members.append({
+            "position": i,
+            "object": {
+                "format_version": e.format_version,
+                "sealed_object_digest": e.sealed_object_digest,
+            },
+            "context_fragment_digest": e.context_fragment_digest,
+            "derived_trust": e.derived_trust,
+            "authorship": e.authorship,
+            "author_key_id_b64u": e.author_key_id_b64u,
+            "custody_present": e.custody_present,
+        })
+    by_reason = {
+        "authentication_failed": exclusions_by_reason.get("authentication_failed", 0),
+        "schema_invalid": exclusions_by_reason.get("schema_invalid", 0),
+        "policy_filtered": exclusions_by_reason.get("policy_filtered", 0),
+        "context_limit": exclusions_by_reason.get("context_limit", 0),
+    }
+    return {
+        "@version": RECORD_VERSION,
+        "source_profile": source_profile,
+        "projection_id": projection_id,
+        "created_at": created_at,
+        "adapter": {"id": adapter_id, "key_id": adapter_key_id},
+        "selection_context": {
+            "recall_request_digest": recall_request_digest,
+            "selection_policy_digest": selection_policy_digest,
+            "trust_snapshot_digest": trust_snapshot_digest,
+            "trust_evaluated_at": trust_evaluated_at,
+            "context_frame_profile": context_frame_profile,
+        },
+        "delivered": delivered_members,
+        "exclusions": {"total": sum(by_reason.values()), "by_reason": by_reason},
+        "projection": {
+            "encoding": "utf-8",
+            "byte_length": len(projection_bytes),
+            "digest": sha256_commitment(projection_bytes),
+        },
+        "nonclaims": dict(NONCLAIMS),
+    }
+
+
+def signing_input(unsigned_record: dict) -> bytes:
+    """domain || JCS(record without proof). The record passed in MUST already
+    omit `proof` (assemble_record never adds it)."""
+    if "proof" in unsigned_record:
+        body = {k: v for k, v in unsigned_record.items() if k != "proof"}
+    else:
+        body = unsigned_record
+    return SIGNING_DOMAIN + jcs_canonicalize(body)
+
+
+def sign_record(unsigned_record: dict, private_key, adapter_key_id: str) -> dict:
+    """Sign the record and return the complete record with `proof` attached.
+
+    `private_key` is a cryptography Ed25519PrivateKey. This function is used in
+    the test with a THROWAWAY key only; no real signing key is handled here.
+    """
+    sig = private_key.sign(signing_input(unsigned_record))
+    proof = {
+        "alg": "Ed25519",
+        "key_id": adapter_key_id,
+        "signature_b64u": base64.urlsafe_b64encode(sig).decode("ascii").rstrip("="),
+    }
+    return {**unsigned_record, "proof": proof}
