@@ -14,7 +14,9 @@ Built one layer at a time. Present layers:
   Layer 2 — fragment framing (context-frame:v0): build a fragment's exact bytes
             from a delivered object's native labels plus its body text.
   Layer 3 — trust-snapshot serialization: build and commit the read-time
-            keyring snapshot the draft delegates to the source profile.
+            keyring snapshot per the normative ApertoMemory Trust-Snapshot
+            Profile v0 (canonical CBOR, raw-byte key-ids, raw-byte sort). The
+            earlier provisional b64u/JSON path is retained only for comparison.
   Layer 4 — complete record assembly and signing (draft sections "Memory
             Projection Record" and "Canonicalization and Signature"): assemble
             every field in schema order, JCS-canonicalize the signed boundary,
@@ -185,83 +187,91 @@ def build_fragment_v0(obj: DeliveredObject) -> bytes:
 #   * for JSON: key order, member names, array order, whitespace, i.e. whether
 #     it is JCS-canonicalized.
 #
-# INDEPENDENT READING taken here
-# ------------------------------
-# The one concrete anchor is "read-time keyring snapshot". ApertoMemory's
-# keyring at read time is exactly: the vault owner signing key (yields trust
-# "self") plus the set of accepted third-party author keys in `known_keys`
-# (yields "trusted"). So the snapshot commits to those two things.
+# NORMATIVE PROFILE (adopted): apertomemory-trust-snapshot-profile.md
+# ------------------------------------------------------------------
+# The read-time keyring snapshot is now serialized per the ApertoMemory
+# Trust-Snapshot Profile v0 (urn:apertomemory:trust-snapshot:v0), confirmed
+# against the reference keyring (open_sealed / vault.known_keys):
 #
-# Choices I make, none of them dictated by the draft:
-#   * Represent key-ids as unpadded base64url of the native 8-byte key-id. The
-#     draft defines a b64u term and uses it for author_key_id_b64u, so reusing
-#     b64u for keyring key-ids is the most consistent record-level choice --
-#     though ApertoMemory-native key-ids are hex, so this is a re-encoding.
-#   * Container = JSON, canonicalized like the rest of the record (JCS: sorted
-#     keys, minimal separators, no whitespace), since the record already
-#     mandates JCS for signing. Member names mirror the record's vocabulary:
-#     owner_key_id_b64u and accepted_key_ids_b64u.
-#   * accepted_key_ids_b64u sorted ascending (JCS-style determinism for a set).
+#   * Contents: owner signing key-id + accepted author key-ids only. Nothing
+#     else (no scope, no evaluated-at, no algorithm id) -- exactly what the
+#     read-time keyring holds.
+#   * Container: canonical CBOR (RFC 8949 sec 4.2), the format's native
+#     deterministic encoding -- NOT JSON/JCS.
+#   * Key-id encoding: raw 8 bytes in a CBOR byte string -- NOT hex text, NOT
+#     base64url.
+#   * Structure: CBOR map {1: owner_key_id (bstr8), 2: [accepted key_ids as
+#     bstr8]}.
+#   * Accepted-array ordering: raw key-id bytes ascending (encoding-stable) --
+#     NOT base64url text order.
+#   * Empty accepted set: present empty CBOR array (0x80), not omitted.
+#   * trust_snapshot_digest = "sha256:" + hex(SHA-256(canonical CBOR bytes)).
 #
-# This is spec section 6.1: "Trust-snapshot serialization (highest risk)... the
-# byte layout is undefined." Layer 3 is where an independent producer converges
-# with or diverges from the other implementation.
+# This SUPERSEDES the provisional b64u/JSON serialization kept below as
+# build_trust_snapshot_provisional() for historical comparison. The provisional
+# path converged byte-for-byte with EMILIA's current vectors; this normative
+# path deliberately differs, so those vectors need regeneration. See the profile
+# doc, section 8.
 
+
+def _keyid_bytes(hex_key_id: str) -> bytes:
+    """The native 8-byte key-id from its lowercase-hex form."""
+    raw = bytes.fromhex(hex_key_id)
+    if len(raw) != 8:
+        raise ValueError(f"key-id must be 8 bytes, got {len(raw)}")
+    return raw
+
+
+def build_trust_snapshot_v1(owner_key_id_hex: str,
+                            accepted_key_ids_hex: list[str]) -> bytes:
+    """Build the read-time keyring snapshot's exact bytes per the normative
+    ApertoMemory Trust-Snapshot Profile v0.
+
+    Input is ApertoMemory-native hex key-ids (owner signing key-id + accepted
+    third-party author key-ids). Output is the canonical-CBOR byte string that
+    trust_snapshot_digest commits to.
+
+    CBOR map {1: owner (bstr8), 2: [accepted (bstr8), ...]}, canonical encoding,
+    accepted array sorted by raw key-id bytes ascending, duplicates collapsed.
+    """
+    import cbor2
+    owner = _keyid_bytes(owner_key_id_hex)
+    # de-duplicate, then sort by raw bytes ascending (encoding-stable)
+    accepted = sorted({_keyid_bytes(k) for k in accepted_key_ids_hex})
+    snapshot = {1: owner, 2: accepted}
+    return cbor2.dumps(snapshot, canonical=True)
+
+
+def trust_snapshot_commitment(owner_key_id_hex: str,
+                              accepted_key_ids_hex: list[str]) -> tuple[bytes, str]:
+    """Return (canonical-CBOR snapshot bytes, trust_snapshot_digest) per the
+    normative profile."""
+    snapshot = build_trust_snapshot_v1(owner_key_id_hex, accepted_key_ids_hex)
+    return snapshot, sha256_commitment(snapshot)
+
+
+# ---- superseded provisional serialization (kept for comparison only) ------
+# base64url key-ids in JCS-compact JSON, accepted sorted by base64url text.
+# This converged with EMILIA's provisional vectors; it is NOT the normative
+# profile. Do not use for new records.
 
 def _hex_keyid_to_b64u(hex_key_id: str) -> str:
-    """Re-encode an ApertoMemory native 8-byte hex key-id as unpadded base64url.
-
-    ApertoMemory produces key-ids as lowercase hex (e.g. "63c1e89c009c5ad7").
-    The record's b64u term (RFC 4648 sec 5, unpadded) is reused here for the
-    keyring snapshot -- a producer choice, since the draft does not say how a
-    keyring key-id is encoded.
-    """
     raw = bytes.fromhex(hex_key_id)
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
-def _jcs_compact_object(members: dict[str, object]) -> bytes:
-    """Serialize a flat JSON object the way JCS (RFC 8785) would for these
-    value types: keys sorted lexicographically, no whitespace, strings and
-    arrays of strings only. This mirrors the canonicalization the record
-    already requires for signing, applied to the snapshot.
-    """
+def build_trust_snapshot_provisional(owner_key_id_hex: str,
+                                     accepted_key_ids_hex: list[str]) -> bytes:
+    """SUPERSEDED. Provisional b64u/JSON snapshot, kept only to reproduce the
+    earlier EMILIA-converging digests for comparison."""
     import json
-    return json.dumps(
-        members,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode("utf-8")
-
-
-def build_trust_snapshot_v0(owner_key_id_hex: str,
-                            accepted_key_ids_hex: list[str]) -> bytes:
-    """Build the read-time keyring snapshot's exact bytes.
-
-    Input is ApertoMemory-native (hex key-ids: the owner signing key-id and the
-    accepted third-party author key-ids from the vault keyring). Output is the
-    byte string that trust_snapshot_digest commits to.
-
-    Structure (a source-profile choice, NOT specified by the draft):
-
-        {"accepted_key_ids_b64u":[<sorted b64u>...],"owner_key_id_b64u":<b64u>}
-
-    JCS-compact JSON, keys sorted, accepted array sorted ascending.
-    """
     accepted = sorted(_hex_keyid_to_b64u(k) for k in accepted_key_ids_hex)
     members = {
         "owner_key_id_b64u": _hex_keyid_to_b64u(owner_key_id_hex),
         "accepted_key_ids_b64u": accepted,
     }
-    return _jcs_compact_object(members)
-
-
-def trust_snapshot_commitment(owner_key_id_hex: str,
-                              accepted_key_ids_hex: list[str]) -> tuple[bytes, str]:
-    """Return (snapshot_bytes, trust_snapshot_digest) for the given keyring."""
-    snapshot = build_trust_snapshot_v0(owner_key_id_hex, accepted_key_ids_hex)
-    return snapshot, sha256_commitment(snapshot)
+    return json.dumps(members, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False).encode("utf-8")
 
 
 # --------------------------------------------------------------------------
