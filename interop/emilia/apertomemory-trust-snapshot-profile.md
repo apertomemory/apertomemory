@@ -118,7 +118,9 @@ accepted array is the third-party set as held in `known_keys`.
 i.e. SHA-256 over the exact canonical-CBOR bytes defined above, rendered in the
 record's standard `sha256:<64 lowercase hex>` digest form.
 
-## 7. Worked example (byte-exact)
+## 7. Worked examples (byte-exact)
+
+### 7.1 Single accepted key
 
 Owner key-id `63c1e89c009c5ad7`, one accepted key-id `d05309cbd3b55f3b`:
 
@@ -132,6 +134,36 @@ Owner key-id `63c1e89c009c5ad7`, one accepted key-id `d05309cbd3b55f3b`:
 The `trust_snapshot_digest` is SHA-256 over those exact bytes. See
 `projection_producer.build_trust_snapshot_v1` for the reference producer and the
 regenerated digest values.
+
+- Full canonical bytes:
+  `a2014863c1e89c009c5ad7028148d05309cbd3b55f3b`
+- `trust_snapshot_digest`:
+  `sha256:ad677e36d1ac311f758cefeb41069704d1bc995612db0bc1029e239ecfcc2b5d`
+
+### 7.2 Two accepted keys — ordering exercised
+
+Owner key-id `63c1e89c009c5ad7`, two accepted key-ids. This example is chosen so
+the raw-byte order and the base64url-text order differ, showing why §5.1 pins the
+sort to raw bytes.
+
+- Accepted key-ids, before sorting: `63c1e89c009c5ad7`, `d05309cbd3b55f3b`.
+- Sorted by **raw key-id bytes, ascending** (the rule): `63c1e89c009c5ad7`
+  then `d05309cbd3b55f3b`, because the first byte `0x63 < 0xd0`.
+- For contrast, sorting by **base64url text** would give the OPPOSITE sequence:
+  the base64url forms are `63c1e89c009c5ad7` → `Y8HonACcWtc` and
+  `d05309cbd3b55f3b` → `0FMJy9O1Xzs`, and `"0FMJy9O1Xzs" < "Y8HonACcWtc"` in
+  text order, so text sorting would place `d05309cbd3b55f3b` first. The two rules
+  produce different byte sequences and therefore different digests; this profile
+  mandates the raw-byte order.
+- CBOR map: `{1: h'63c1e89c009c5ad7', 2: [h'63c1e89c009c5ad7', h'd05309cbd3b55f3b']}`
+- Canonical CBOR (hex):
+  `a2` (map, 2 pairs) `01` (key 1) `48 63c1e89c009c5ad7` (bstr8)
+  `02` (key 2) `82` (array, 2) `48 63c1e89c009c5ad7` (bstr8)
+  `48 d05309cbd3b55f3b` (bstr8)
+- Full canonical bytes:
+  `a2014863c1e89c009c5ad702824863c1e89c009c5ad748d05309cbd3b55f3b`
+- `trust_snapshot_digest`:
+  `sha256:c0cdaefd56bf3275834cfbe02b94ba3ffc8e0a48e79cc0e7d6268d07539d6d4b`
 
 ## 8. Compatibility note — this CHANGES the provisional encoding
 
