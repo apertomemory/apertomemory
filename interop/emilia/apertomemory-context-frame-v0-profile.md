@@ -23,26 +23,33 @@ already emits (`projection_producer.build_fragment_v0`) is byte-identical to
 EMILIA's current `memory-projection-record.v1.vectors.json` fragments, including
 the `null_author` edge case. This profile formalizes those existing convergent
 bytes so the transform is written down and independently reproducible, rather
-than an implicit shared reading. See §7 (compatibility note): EMILIA's vectors
+than an implicit shared reading. See §8 (compatibility note): EMILIA's vectors
 do NOT need regeneration for framing.
 
 ## 2. Fragment template
 
-A context fragment is exactly three lines, each terminated by a single line
-feed (`\n`, 0x0A), encoded as UTF-8:
+A context fragment is the following byte construction, encoded as UTF-8. This
+byte construction is authoritative:
+
+    fragment = header + "\n" + body + "\n" + "[/ApertoMemory]" + "\n"
+
+where each `\n` is a single line feed (0x0A). Laid out:
 
     [ApertoMemory trust=<trust> authorship=<authorship> author_key=<author_key> custody=<custody>]\n
     <body>\n
     [/ApertoMemory]\n
 
-- Line 1 is the **header**: the literal `[ApertoMemory ` prefix, four
-  space-separated `label=value` fields in fixed order, and a closing `]`.
-- Line 2 is the **body**: the memory content, verbatim (§5).
-- Line 3 is the literal closing delimiter `[/ApertoMemory]`.
+- The **header** is the literal `[ApertoMemory ` prefix, four space-separated
+  `label=value` fields in fixed order, and a closing `]`, followed by one LF.
+- The **body** is the memory content, verbatim (§5), followed by one LF. The
+  body MAY itself contain internal line feeds, so a fragment is not necessarily
+  three physical lines; the byte construction above, not a line count, defines
+  it.
+- The closing delimiter is the literal `[/ApertoMemory]` followed by one LF.
 
-The complete fragment is `header + "\n" + body + "\n" + "[/ApertoMemory]" +
-"\n"`. There is no leading whitespace, no trailing content after the final `\n`,
-and no blank lines.
+There is no leading whitespace and no trailing content after the final `\n`. No
+blank lines are introduced by the frame (though a body that itself ends in `\n`
+would place one before the closing delimiter — the body is inserted verbatim).
 
 ## 3. Header fields — names, order, sources
 
@@ -90,6 +97,12 @@ Ratification note: draft -00 requires unverified content to use a null author
 key but does not mandate how a null author renders in a fragment. This profile
 ratifies `author_key=none`, which is the token the reference producer already
 emits and which matches EMILIA's `null_author` vector byte-for-byte.
+
+Note on encoding: `author_key` is base64url here because it mirrors the neutral
+projection record's `author_key_id_b64u` field. This differs deliberately from
+the ApertoMemory Trust-Snapshot Profile v0, which carries key-ids as raw bytes
+in a standalone CBOR blob. The two encodings are independent and each is native
+to its own artifact.
 
 ### 4.1 Boolean spelling
 

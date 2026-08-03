@@ -53,6 +53,12 @@ CBOR byte string — NOT hex text, NOT base64url. (ApertoMemory represents key-i
 as lowercase hex in human-facing contexts; inside the CBOR snapshot the value is
 the raw bytes those hex digits denote.)
 
+This differs deliberately from the ApertoMemory Context-Frame Profile v0, which
+renders `author_key` in base64url: that profile mirrors the neutral projection
+record's `author_key_id_b64u` field, whereas this snapshot is a standalone CBOR
+blob that only ever gets hashed, so it uses raw bytes. The two encodings are
+independent and each is native to its own artifact.
+
 ## 4. Container: canonical CBOR
 
 The snapshot is serialized as a single CBOR data item using **canonical /
@@ -106,10 +112,18 @@ entries.
 
 ### 5.3 Owner key
 
-Key `1` is always present and is exactly one 8-byte key-id (the vault owner
-signing key-id). The owner key-id is not repeated inside the accepted array even
-if, in some construction, the owner also appears as an accepted author; the
-accepted array is the third-party set as held in `known_keys`.
+Key `1` is always present and is exactly one 8-byte key-id: the vault owner
+signing key-id.
+
+Key `2` (the accepted array) is exactly the `known_keys` set, de-duplicated and
+sorted by raw bytes ascending per §5.1. The owner key-id and the accepted
+key-ids are conceptually distinct roles — the owner yields trust `self`, an
+accepted author yields `trusted` — and `known_keys` is the set of accepted
+third-party authors. If the owner key-id also appears in `known_keys`, it is
+kept in the accepted array, not stripped: it is redundant (the owner key already
+yields `self`, which outranks `trusted`, so an owner entry in the accepted set
+never changes any trust outcome) but it is not removed. The snapshot serializes
+the keyring as held.
 
 ## 6. Digest
 
@@ -130,11 +144,6 @@ Owner key-id `63c1e89c009c5ad7`, one accepted key-id `d05309cbd3b55f3b`:
 - Canonical CBOR (hex):
   `a2` (map, 2 pairs) `01` (key 1) `48 63c1e89c009c5ad7` (bstr8)
   `02` (key 2) `81` (array, 1) `48 d05309cbd3b55f3b` (bstr8)
-
-The `trust_snapshot_digest` is SHA-256 over those exact bytes. See
-`projection_producer.build_trust_snapshot_v1` for the reference producer and the
-regenerated digest values.
-
 - Full canonical bytes:
   `a2014863c1e89c009c5ad7028148d05309cbd3b55f3b`
 - `trust_snapshot_digest`:
@@ -142,28 +151,44 @@ regenerated digest values.
 
 ### 7.2 Two accepted keys — ordering exercised
 
-Owner key-id `63c1e89c009c5ad7`, two accepted key-ids. This example is chosen so
-the raw-byte order and the base64url-text order differ, showing why §5.1 pins the
-sort to raw bytes.
+Owner key-id `0102030405060708`, two distinct accepted key-ids
+`0000000000000001` and `d000000000000000` (illustrative 8-byte values, none of
+them the owner). This pair is chosen so the raw-byte order and the base64url-text
+order differ, showing why §5.1 pins the sort to raw bytes.
 
-- Accepted key-ids, before sorting: `63c1e89c009c5ad7`, `d05309cbd3b55f3b`.
-- Sorted by **raw key-id bytes, ascending** (the rule): `63c1e89c009c5ad7`
-  then `d05309cbd3b55f3b`, because the first byte `0x63 < 0xd0`.
+- Accepted key-ids, as held (unsorted): `d000000000000000`, `0000000000000001`.
+- Sorted by **raw key-id bytes, ascending** (the rule): `0000000000000001`
+  then `d000000000000000`, because the first byte `0x00 < 0xd0`.
 - For contrast, sorting by **base64url text** would give the OPPOSITE sequence:
-  the base64url forms are `63c1e89c009c5ad7` → `Y8HonACcWtc` and
-  `d05309cbd3b55f3b` → `0FMJy9O1Xzs`, and `"0FMJy9O1Xzs" < "Y8HonACcWtc"` in
-  text order, so text sorting would place `d05309cbd3b55f3b` first. The two rules
-  produce different byte sequences and therefore different digests; this profile
-  mandates the raw-byte order.
-- CBOR map: `{1: h'63c1e89c009c5ad7', 2: [h'63c1e89c009c5ad7', h'd05309cbd3b55f3b']}`
+  the base64url forms are `0000000000000001` → `AAAAAAAAAAE` and
+  `d000000000000000` → `0AAAAAAAAAA`, and `"0AAAAAAAAAA" < "AAAAAAAAAAE"` in text
+  order (the digit `'0'` sorts before the letter `'A'` in ASCII), so text
+  sorting would place `d000000000000000` first. The two rules produce different
+  byte sequences and therefore different digests; this profile mandates the
+  raw-byte order.
+- CBOR map: `{1: h'0102030405060708', 2: [h'0000000000000001', h'd000000000000000']}`
+- Canonical CBOR (hex):
+  `a2` (map, 2 pairs) `01` (key 1) `48 0102030405060708` (bstr8)
+  `02` (key 2) `82` (array, 2) `48 0000000000000001` (bstr8)
+  `48 d000000000000000` (bstr8)
+- Full canonical bytes:
+  `a201480102030405060708028248000000000000000148d000000000000000`
+- `trust_snapshot_digest`:
+  `sha256:a6cec9a790d68dda6df60477c802cd3738650cd8f1b38fcc21125de51762e231`
+
+### 7.3 Empty accepted set
+
+Owner key-id `63c1e89c009c5ad7`, no accepted third-party keys (§5.2). Key `2` is
+a present, empty array.
+
+- CBOR map: `{1: h'63c1e89c009c5ad7', 2: []}`
 - Canonical CBOR (hex):
   `a2` (map, 2 pairs) `01` (key 1) `48 63c1e89c009c5ad7` (bstr8)
-  `02` (key 2) `82` (array, 2) `48 63c1e89c009c5ad7` (bstr8)
-  `48 d05309cbd3b55f3b` (bstr8)
+  `02` (key 2) `80` (empty array)
 - Full canonical bytes:
-  `a2014863c1e89c009c5ad702824863c1e89c009c5ad748d05309cbd3b55f3b`
+  `a2014863c1e89c009c5ad70280`
 - `trust_snapshot_digest`:
-  `sha256:c0cdaefd56bf3275834cfbe02b94ba3ffc8e0a48e79cc0e7d6268d07539d6d4b`
+  `sha256:eddde59fb79cca10fdadf0c5bfc7c3b7e466cab79dcb95a5c4ea165fc8eb5bf0`
 
 ## 8. Compatibility note — this CHANGES the provisional encoding
 
@@ -189,8 +214,8 @@ the three `source_profile_edge_cases`) were computed under the provisional
 serialization and will NOT match this profile. EMILIA's vectors need
 regeneration against this profile once it is adopted. This is expected and
 intended: the point of the profile is to replace lucky convergence with a
-byte-exact specification. The regenerated digests this profile produces are
-listed alongside the producer update.
+byte-exact specification. The digests this profile produces for the positive,
+two-key, and empty-accepted cases are the worked examples in §7.1–§7.3.
 
 Only `selection_context.trust_snapshot_digest` (and, transitively, any record
 signature computed over a record containing it) changes. The context-frame
