@@ -3,5 +3,7 @@ __pycache__/
 dist/
 build/
 .venv/
+.venv-build/
 *.pyc
 .DS_Store
+mcp-publisher

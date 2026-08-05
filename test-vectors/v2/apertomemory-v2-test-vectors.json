@@ -1,6 +1,6 @@
 {
   "format_version": 2,
-  "generated_by": "apertomemory 0.2.1 (Python reference)",
+  "generated_by": "apertomemory 0.2.3 (Python reference)",
   "vector_set": "001-014",
   "note": "These vectors are the normative artefact. An implementation is conformant if it reproduces the byte strings AND refuses every MUST-REJECT case. Reproducing bytes alone is not sufficient: the first release of this format did exactly that and was vulnerable.",
   "vectors": {
