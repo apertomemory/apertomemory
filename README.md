@@ -5,6 +5,8 @@
 [![IETF I-D](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdatatracker.ietf.org%2Fapi%2Fv1%2Fdoc%2Fdocument%2Fdraft-ferro-apertomemory%2F%3Fformat%3Djson&query=%24.rev&label=IETF&prefix=draft-ferro-apertomemory-&color=blue)](https://datatracker.ietf.org/doc/draft-ferro-apertomemory/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
+<!-- mcp-name: io.github.apertomemory/apertomemory -->
+
 **Portable, client-side-encrypted, user-owned AI memory.**
 
 Every AI tool remembers you differently and only within its own walls.

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.apertomemory/apertomemory",
+  "description": "Portable, client-side-encrypted, user-owned AI memory: an MCP server exposing an encrypted ApertoMemory vault to MCP clients.",
+  "repository": {
+    "url": "https://github.com/apertomemory/apertomemory",
+    "source": "github"
+  },
+  "version": "0.2.2",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "apertomemory",
+      "version": "0.2.2",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
